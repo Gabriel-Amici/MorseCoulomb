@@ -1,0 +1,25 @@
+text.usetex: True
+text.latex.preamble: \usepackage{amsmath}\usepackage{amssymb}\usepackage{lmodern}
+
+# Font properties
+font.family: serif
+font.serif: Computer Modern
+font.size: 12
+
+figure.figsize : 6.5, 3.5
+axes.titlesize: medium
+figure.titlesize: medium
+
+legend.fontsize: 7
+legend.frameon: True
+legend.framealpha: 0.8
+legend.loc: best
+
+# Line properties
+lines.linewidth: 1
+lines.marker: .
+lines.markersize: 5
+lines.markeredgewidth: 0
+
+# Color cycle for multiple lines
+axes.prop_cycle: cycler(['#1d65c9', '#ff1a1a', '#ff6a00', '#ffd500', '#bfe500', '#7ee236'])

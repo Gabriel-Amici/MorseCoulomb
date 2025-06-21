@@ -1,0 +1,11 @@
+__pycache__/*
+.ipynb_checkpoints/*
+*.svg
+*.pdf
+*.json
+*.mp4
+*.png
+*.pyc
+*.zip
+*.rar
+.venv/*

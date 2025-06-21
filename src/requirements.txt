@@ -1,0 +1,5 @@
+numpy>=2.0.2
+matplotlib>=0.60.0
+numba
+ipykernel
+scipy
