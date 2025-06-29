@@ -158,7 +158,7 @@ def nMsC_poincare_energies(alpha, Energies: np.ndarray, F_0: float, Omg: float, 
         print("Condições iniciais calculadas")
 
         for i in prange(Num_conditions):
-            array = nMsC_poincare_angle_energy(alpha, E, F_0, Omg, section_points, r0s[i], p0s[i], t0 / Omg, dt)
+            array = nMsC_poincare_angle_energy(alpha, F_0, Omg, section_points, r0s[i], p0s[i], t0 / Omg, dt)
             # Find the index of the first row with all zeros
             first_zero_row = np.where(~array.any(axis=1))[0]
             # Trim the array up to the first row with all zeros

@@ -166,7 +166,8 @@ def C_section_angle_energy(E: float, F_0: float, Omg: float, section_points: int
     return data
 
 
-@njit(parallel=lambda: parallelization_depth >= 2, cache=False)
+#@njit(parallel=lambda: parallelization_depth >= 2, cache=False)
+#@njit(parallel=True)
 def C_section_energies(Es: np.ndarray, F_0: float, Omg: float, section_points: int, num_trajectories: int, q20: float = 0, h: float = 1.e-4):
 
     Energies = len(Es)
