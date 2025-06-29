@@ -1,4 +1,4 @@
-from .potentials import msc_potential, coulomb_potential
+from .potentials import msc_potential, coulomb_potential, sc_potential, normalized_msc_potential
 from .classical import(
     coulomb_unperturbed,
     coulomb_driven,
@@ -10,4 +10,4 @@ from .classical import(
     msc_ionization
 )
 
-__all__ = ['potentials', 'classical', 'driven']
+__all__ = ['potentials', 'classical', 'quantum']

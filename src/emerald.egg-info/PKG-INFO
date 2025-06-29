@@ -5,6 +5,7 @@ Summary: A library for Morse-soft-Coulomb potential analysis
 Author: Gabriel A. Amici
 Requires-Dist: numpy
 Requires-Dist: numba
+Requires-Dist: scipy
 Dynamic: author
 Dynamic: requires-dist
 Dynamic: summary
