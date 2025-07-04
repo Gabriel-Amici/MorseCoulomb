@@ -93,7 +93,7 @@ def MsC_ionization_amplitude( alpha: float, E_0: float, F_0s: np.ndarray, Omg: f
     omg_n = MsC_angular_frequency(alpha, E_0, dt)
     theta_0 = MsC_angle(alpha, E_0, 0, omg_n, 1.e-5)
 
-    angles = np.linspace( theta_0, np.pi, Num_trajectories )[1:Num_trajectories-1]
+    angles = np.linspace( -np.pi, np.pi, Num_trajectories )[1:Num_trajectories-1]
 
     positions = MsC_position(angles, alpha, E_0, poly_degree, 1.e-5)
 
@@ -121,7 +121,10 @@ def MsC_ionization_amplitude( alpha: float, E_0: float, F_0s: np.ndarray, Omg: f
         Pi = MsC_ionization_probability( alpha, E_0, F_0s[f], Omg, r0s, p0s, t_0, total_time, dt )
         Pis[F_0s[f]] = Pi
 
-    return sorted(Pis.items())
+    sorted_keys = sorted(Pis.keys())
+    sorted_items = [Pis[key] for key in sorted_keys]
+    return sorted_items
+
 
 @njit(parallel=True)
 def MsC_ionization_amplitude_criteria( alpha: float, E_0: float, F_0s: np.ndarray, Omg: float, Num_trajectories: int, t_0: float, total_time: float, poly_degree: int, dt: float = 1.e-4 ):
@@ -167,7 +170,7 @@ def MsC_ionization_frequency( alpha: float, E_0: float, F_0: float, Omgs: np.nda
     omg_n = MsC_angular_frequency(alpha, E_0, dt)
     theta_0 = MsC_angle(alpha, E_0, 0, omg_n, 1.e-5)
 
-    angles = np.linspace( theta_0, np.pi, Num_trajectories )[1:Num_trajectories-1]
+    angles = np.linspace( -np.pi, np.pi, Num_trajectories )[1:Num_trajectories-1]
 
     positions = MsC_position(angles, alpha, E_0, poly_degree, 1.e-5)
 
@@ -197,7 +200,10 @@ def MsC_ionization_frequency( alpha: float, E_0: float, F_0: float, Omgs: np.nda
         Pi = MsC_ionization_probability( alpha, E_0, F_0, Omg, r0s, p0s, t_0, total_time, dt )
         Pis[Omg] = Pi
 
-    return sorted(Pis.items())
+    sorted_keys = sorted(Pis.keys())
+    sorted_items = [Pis[key] for key in sorted_keys]
+    return sorted_items
+
 
 
 @njit #(parallel=True)
