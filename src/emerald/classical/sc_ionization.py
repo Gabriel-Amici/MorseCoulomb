@@ -87,7 +87,7 @@ def sC_ionization_probability_criteria(alpha: float, E_0: float, F_0: float, Omg
 
     return np.array([Pi_8rM, Pi_4rM, Pi_comp])
 
-@njit #(parallel=True)
+@njit(parallel=True)
 def sC_ionization_amplitude( alpha: float, E_0: float, F_0s: np.ndarray, Omg: float, Num_trajectories: int, t_0: float, total_time: float, poly_degree: int, dt: float = 1.e-4 ):
     
     omg_n = sC_angular_frequency(alpha, E_0, dt)
@@ -117,7 +117,7 @@ def sC_ionization_amplitude( alpha: float, E_0: float, F_0s: np.ndarray, Omg: fl
 
     Pis = { }
 
-    for f in range(len(F_0s)):
+    for f in prange(len(F_0s)):
         Pi = sC_ionization_probability( alpha, E_0, F_0s[f], Omg, r0s, p0s, t_0, total_time, dt )
         Pis[F_0s[f]] = Pi
 
@@ -164,7 +164,7 @@ def sC_ionization_amplitude_criteria( alpha: float, E_0: float, F_0s: np.ndarray
     sorted_items = [Pis[key] for key in sorted_keys]
     return sorted_items
 
-@njit #(parallel=True)
+@njit(parallel=True)
 def sC_ionization_frequency( alpha: float, E_0: float, F_0: float, Omgs: np.ndarray, Num_trajectories: int, total_time: float, poly_degree: int, dt: float = 1.e-4 ):
     
     omg_n = sC_angular_frequency(alpha, E_0, dt)
@@ -194,7 +194,7 @@ def sC_ionization_frequency( alpha: float, E_0: float, F_0: float, Omgs: np.ndar
 
     Pis = {}
 
-    for o in range(len(Omgs)):
+    for o in prange(len(Omgs)):
         Omg = Omgs[o]
         t_0 = np.pi/(2*Omg)
         Pi = sC_ionization_probability( alpha, E_0, F_0, Omg, r0s, p0s, t_0, total_time, dt )
