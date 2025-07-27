@@ -61,7 +61,9 @@ def C_ionization_amplitude( E: float, F_0s: np.ndarray, Omg: float, Num_trajecto
         Pi = C_ionization_probability( E, F_0s[f], Omg, q1s, p1s, t_0, total_time, h )
         Pis[F_0s[f]] = Pi
 
-    return sorted(Pis.items())
+    sorted_keys = sorted(Pis.keys())
+    sorted_items = [Pis[key] for key in sorted_keys]
+    return sorted_items
 
 @njit(parallel=True)
 def C_ionization_frequency( E: float, F_0: float, Omgs: np.ndarray, Num_trajectories: int, total_time: float, h: float = 1.e-4 ):
@@ -95,4 +97,6 @@ def C_ionization_frequency( E: float, F_0: float, Omgs: np.ndarray, Num_trajecto
         Pi = C_ionization_probability( E, F_0, Omg, q1s, p1s, t_0, total_time, h )
         Pis[Omg] = Pi
 
-    return sorted(Pis.items())
+    sorted_keys = sorted(Pis.keys())
+    sorted_items = [Pis[key] for key in sorted_keys]
+    return sorted_items

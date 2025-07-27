@@ -153,7 +153,7 @@ with open(filename, "w") as filehandle:
 from emerald.classical.coulomb_ionization import C_ionization_amplitude
 
 ionization_probabilities = []
-Pis = C_ionization_amplitude(initial_energy, field_amplitude_set, field_frequency, initial_conditions, time_grid_start, total_time, 100, delta_t)
+Pis = C_ionization_amplitude(initial_energy, field_amplitude_set, field_frequency, initial_conditions, time_grid_start, total_time, delta_t)
 
 ionization_probabilities = np.array(Pis)
 
@@ -179,7 +179,7 @@ output_data  = {
 
 now = datetime.now().strftime(r"%Y-%m-%d--%H-%M")
 
-filename = f"{now}--C-classical-ionization-amplitude--a--{alpha}--Omg--{field_frequency}.json"
+filename = f"{now}--C-classical-ionization-amplitude--a--{0}--Omg--{field_frequency}.json"
 with open(filename, "w") as filehandle:
     json.dump(output_data, filehandle)
 

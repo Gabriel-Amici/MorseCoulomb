@@ -89,11 +89,8 @@ def sC_ionization_probability_criteria(alpha: float, E_0: float, F_0: float, Omg
 
 @njit(parallel=True)
 def sC_ionization_amplitude( alpha: float, E_0: float, F_0s: np.ndarray, Omg: float, Num_trajectories: int, t_0: float, total_time: float, poly_degree: int, dt: float = 1.e-4 ):
-    
-    omg_n = sC_angular_frequency(alpha, E_0, dt)
-    theta_0 = sC_angle(alpha, E_0, 0, omg_n, 1.e-5)
 
-    angles = np.linspace( -np.pi, np.pi, Num_trajectories )[1:Num_trajectories-1]
+    angles = np.linspace( 0, np.pi, Num_trajectories )[1:Num_trajectories-1]
 
     positions = sC_position(angles, alpha, E_0, poly_degree, 1.e-5)
 
@@ -166,11 +163,8 @@ def sC_ionization_amplitude_criteria( alpha: float, E_0: float, F_0s: np.ndarray
 
 @njit(parallel=True)
 def sC_ionization_frequency( alpha: float, E_0: float, F_0: float, Omgs: np.ndarray, Num_trajectories: int, total_time: float, poly_degree: int, dt: float = 1.e-4 ):
-    
-    omg_n = sC_angular_frequency(alpha, E_0, dt)
-    theta_0 = sC_angle(alpha, E_0, 0, omg_n, 1.e-5)
 
-    angles = np.linspace( -np.pi, np.pi, Num_trajectories )[1:Num_trajectories-1]
+    angles = np.linspace( 0, np.pi, Num_trajectories )[1:Num_trajectories-1]
 
     positions = sC_position(angles, alpha, E_0, poly_degree, 1.e-5)
 
