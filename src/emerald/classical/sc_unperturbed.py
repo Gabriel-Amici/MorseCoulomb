@@ -106,7 +106,7 @@ def sC_phase_space( alpha: float, E: float, dt: float = 1.e-4, rM: float = 0. ) 
     if E < 0:
         rm, rM = sC_return_points( alpha, E )
     else:
-        rm = sC_return_points( alpha, E )[0]
+        rm = -rM
 
     rs = np.arange( rm, rM, dt )
     ps = np.zeros_like(rs)
