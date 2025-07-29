@@ -167,29 +167,30 @@ def C_section_angle_energy(E: float, F_0: float, Omg: float, section_points: int
 
 
 #@njit(parallel=lambda: parallelization_depth >= 2, cache=False)
-#@njit(parallel=True)
-def C_section_energies(Es: np.ndarray, F_0: float, Omg: float, section_points: int, num_trajectories: int, q20: float = 0, h: float = 1.e-4):
+@njit(parallel=True)
+def C_poincare_energies(Energies: np.ndarray, F_0: float, Omg: float, section_points: int, num_trajectories: int, t0: float = 0, dt: float = 1.e-4):
 
-    Energies = len(Es)
-    arrays = [np.zeros((section_points, 2)) for _ in range(num_trajectories*2*Energies)]
-    data = np.empty((0, 2))
-
-    for E in Es:
-        r_min, r_max = C_return_points(E)
-        rs =  np.array([ C_position( ang, E, r_min, r_max ) for ang in np.linspace(0, np.pi, num_trajectories)[1:num_trajectories-1] ])
+    all_results = []  # Will collect all arrays here
     
-        Num_conditions = int((num_trajectories-2)*2)
+    for e in range(len(Energies)):
+        E = Energies[e]
 
+        r_min, r_max = C_return_points(E)
+
+        angles = np.linspace(0, np.pi, num_trajectories)[1:num_trajectories-1]
+        positions = np.array([ C_position( ang, E, r_min, r_max ) for ang in angles ])
+
+        Num_conditions = int((num_trajectories-2)*2)
         r0s = np.empty(Num_conditions)
         q1s = np.empty(Num_conditions)
         p1s = np.empty(Num_conditions)
 
         for i in range(num_trajectories-2):
-            if not np.isnan(rs[i]):
-                r0s[2 * i] = rs[i]
-                r0s[2 * i + 1] = rs[i]
+            if not np.isnan(positions[i]):
+                r0s[2 * i] = positions[i]
+                r0s[2 * i + 1] = positions[i]
                 
-                q10 = np.sqrt(rs[i])
+                q10 = np.sqrt(positions[i])
                 q1s[2 * i] = q10
                 q1s[2 * i + 1] = q10
                 
@@ -197,15 +198,34 @@ def C_section_energies(Es: np.ndarray, F_0: float, Omg: float, section_points: i
                 p1s[2 * i] = p10
                 p1s[2 * i + 1] = -p10
 
+        print("Condições iniciais calculadas")
+
+        # Store results from parallel computation
+        arrays = [np.empty((0, 2)) for _ in range(Num_conditions)]
+
         for i in prange(Num_conditions):
-            array = C_poincare_angle_energy(E, F_0, Omg, section_points, q1s[i], p1s[i], q20 / Omg, h)
-            # Find the index of the first row with all zeros
-            first_zero_row = np.where(~array.any(axis=1))[0]
-            # Trim the array up to the first row with all zeros
-            arrays[i] = array[:first_zero_row[0]] if first_zero_row.size > 0 else array
+            arrays[i] = C_poincare_angle_energy(E, F_0, Omg, section_points, q1s[i], p1s[i], t0 / Omg, dt)
 
+        # Sequential concatenation after parallel work
         for array in arrays:
-            data = np.append(data, array, axis=0)
+            all_results.append(array)
 
-    return data
-
+    # Final concatenation of all results
+    if len(all_results) == 0:
+        return np.empty((0, 2))
+    
+    # Calculate total size needed
+    total_rows = 0
+    for arr in all_results:
+        total_rows += arr.shape[0]
+    
+    # Create final result array
+    data = np.empty((total_rows, 2))
+    current_idx = 0
+    
+    for arr in all_results:
+        if arr.shape[0] > 0:
+            data[current_idx:current_idx + arr.shape[0]] = arr
+            current_idx += arr.shape[0]
+    
+    return data[:current_idx]

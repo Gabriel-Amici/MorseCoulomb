@@ -123,106 +123,59 @@ def sC_poincare_angle_energy( alpha, F_0: float, Omg: float, section_points: int
     Y = Y[:j]
     return Y
     
-#@njit
+@njit(parallel=True)
 def sC_poincare_energies(alpha, Energies: np.ndarray, F_0: float, Omg: float, section_points: int, num_trajectories: int, t0: float = 0, dt: float = 1.e-4):
     
     num_energies = len(Energies)
-    arrays = [np.zeros((section_points, 2)) for _ in range(int(num_trajectories*2*num_energies))]
-    data = np.empty((0, 2))
-
-    for i in prange(len(Energies)):
-        E = Energies[i]
-        omg_n = sC_angular_frequency(alpha, E, dt)
-        theta_0 = sC_angle(alpha, E, 0, omg_n, 1.e-5)
+    all_results = []  # Will collect all arrays here
     
-        angles = np.linspace( theta_0, np.pi, num_trajectories )[1:num_trajectories-1]
+    for e in range(len(Energies)):
+        E = Energies[e]
     
+        angles = np.linspace(0, np.pi, num_trajectories)[1:num_trajectories-1]
         positions = sC_position(angles, alpha, E, 50, 1.e-5)
     
         Num_conditions = int((num_trajectories-2)*2)
-        r0s = np.empty( Num_conditions )
-        p0s = np.empty( Num_conditions )
+        r0s = np.empty(Num_conditions)
+        p0s = np.empty(Num_conditions)
     
-    
-        for i in range(num_trajectories-2):               #duplicando o numero de condicoes iniciais para p e -p
+        for i in range(num_trajectories-2):
             r_0 = positions[i]
-            #posicao
             r0s[2*i] = r_0
             r0s[2*i+1] = r_0
     
-            #momento 
             p_0 = sC_momentum(alpha, E, r_0)
             p0s[2*i] = p_0 
             p0s[2*i+1] = -p_0
     
         print("Condições iniciais calculadas")
-
-        for i in prange(Num_conditions):
-            array = sC_poincare_angle_energy(alpha, F_0, Omg, section_points, r0s[i], p0s[i], t0 / Omg, dt)
-            # Find the index of the first row with all zeros
-            first_zero_row = np.where(~array.any(axis=1))[0]
-            # Trim the array up to the first row with all zeros
-            arrays[i] = array[:first_zero_row[0]] if first_zero_row.size > 0 else array
-
-        for array in arrays:
-            data = np.append(data, array, axis=0)
-
-    return data
-
-@njit
-def is_all_zero(row):
-    for val in row:
-        if val != 0.0:
-            return False
-    return True
-
-@njit
-def trim_array(array):
-    for i in range(array.shape[0]):
-        if is_all_zero(array[i]):
-            return array[:i]
-    return array
-
-@njit(parallel=True)
-def sC_poincare_energies_alt(alpha, Energies: np.ndarray, F_0: float, Omg: float, section_points: int, num_trajectories: int, t0: float = 0, dt: float = 1.e-4):
-    
-    num_energies = len(Energies)
-    arrays = [np.zeros((section_points, 2)) for _ in range(int(num_trajectories*2*num_energies))]
-    data = np.empty((0, 2))
-
-    for k in prange(len(Energies)):
-        E = Energies[k]
-        omg_n = sC_angular_frequency(alpha, E, dt)
-        theta_0 = sC_angle(alpha, E, 0, omg_n, 1.e-5)
-    
-        angles = np.linspace( theta_0, np.pi, num_trajectories )[1:num_trajectories-1]
-    
-        positions = sC_position(angles, alpha, E, 50, 1.e-5)
-    
-        Num_conditions = int((num_trajectories-2)*2)
-        r0s = np.empty( Num_conditions )
-        p0s = np.empty( Num_conditions )
-    
-    
-        for i in range(num_trajectories-2):               #duplicando o numero de condicoes iniciais para p e -p
-            r_0 = positions[i]
-            #posicao
-            r0s[2*i] = r_0
-            r0s[2*i+1] = r_0
-    
-            #momento 
-            p_0 = sC_momentum(alpha, E, r_0)
-            p0s[2*i] = p_0 
-            p0s[2*i+1] = -p_0
-    
-        print("Condições iniciais calculadas")
-
-        for j in prange(Num_conditions):
-            array = sC_poincare_angle_energy(alpha, F_0, Omg, section_points, r0s[j], p0s[j], t0 / Omg, dt)
-            trimmed_array = trim_array(array)
-            arrays[j] = trimmed_array
         
+        # Store results from parallel computation
+        arrays = [np.empty((0, 2)) for _ in range(Num_conditions)]
+        
+        for i in prange(Num_conditions):
+            arrays[i] = sC_poincare_angle_energy(alpha, F_0, Omg, section_points, r0s[i], p0s[i], t0 / Omg, dt)
+        
+        # Sequential concatenation after parallel work
         for array in arrays:
-            data = np.append(data, array, axis=0)
-
-    return data
+            all_results.append(array)
+    
+    # Final concatenation of all results
+    if len(all_results) == 0:
+        return np.empty((0, 2))
+    
+    # Calculate total size needed
+    total_rows = 0
+    for arr in all_results:
+        total_rows += arr.shape[0]
+    
+    # Create final result array
+    data = np.empty((total_rows, 2))
+    current_idx = 0
+    
+    for arr in all_results:
+        if arr.shape[0] > 0:
+            data[current_idx:current_idx + arr.shape[0]] = arr
+            current_idx += arr.shape[0]
+    
+    return data[:current_idx]
