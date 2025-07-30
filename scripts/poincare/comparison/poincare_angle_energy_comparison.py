@@ -76,7 +76,7 @@ filename = f"{now}--MsC-poincare-energies--a--{alpha}--F0--{field_amplitude}--Om
 with open(filename, "w") as filehandle:
     json.dump(output_data, filehandle)
 
-from sys import exit ; exit(0) # Exit after MsC potential to avoid running the other potentials
+
 '''sC potential'''
 
 from emerald.classical.sc_poincare import sC_poincare_energies
