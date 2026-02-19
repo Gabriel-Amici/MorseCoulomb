@@ -41,7 +41,7 @@ num_trajectories = 80
 time_grid_start = np.pi/(2*field_frequency)
 total_time = time_grid_start + section_points*field_period
 
-alpha = 0.1
+alpha = np.sqrt(2)
 
 
 '''MsC potential'''
