@@ -2,6 +2,17 @@ import numpy as np
 from numba import njit, vectorize
 
 
+dict_math_expressions = {
+    'cos' : lambda x: np.cos(x),
+    'sin' : lambda x: np.sin(x),
+    'tan' : lambda x: np.tan(x),
+    'exp' : lambda x: np.exp(x),
+    'log' : lambda x: np.log(x),
+    'sqrt' : lambda x: np.sqrt(x),
+    'abs' : lambda x: np.abs(x),
+    'sign' : lambda x: np.sign(x)
+}
+
 @njit
 def inter_period( y2 : float, y1 : float, yo : float, x1 : float, dx : float ): #interpolation function
     
@@ -14,12 +25,78 @@ def inter_period( y2 : float, y1 : float, yo : float, x1 : float, dx : float ): 
     return period
 
 @njit
-def external_field( F_0: float, Omg: float, t ):
+def _apply_form(form: str, x: float) -> float:
+    if form == 'cos':
+        return np.cos(x)
+    elif form == 'sin':
+        return np.sin(x)
+    elif form == 'tan':
+        return np.tan(x)
+    elif form == 'exp':
+        return np.exp(x)
+    elif form == 'log':
+        return np.log(x)
+    elif form == 'sqrt':
+        return np.sqrt(x)
+    elif form == 'abs':
+        return np.abs(x)
+    elif form == 'sign':
+        return np.sign(x)
+    else:
+        return np.cos(x)  # fallback — njit needs a guaranteed return
 
-    """External periodic force of amplitude F_0 and frequency Omg, cosine perturbation"""
+@njit
+def external_field_new(
+    field_amplitude: float,
+    field_frequency: float,
+    time: float,
+    form: str = 'cos',
+    rampup_time: float = 0,
+    rampdown_time: float = 0,
+    operation_time: float = -1
+) -> float:
+    if operation_time > 0:
+        if time < rampup_time:
+            F_0 = field_amplitude * (time / rampup_time)
+        elif time > operation_time - rampdown_time:
+            F_0 = field_amplitude * (operation_time - time) / rampdown_time
+        else:
+            F_0 = field_amplitude
+    else:
+        if time < rampup_time:
+            F_0 = field_amplitude * (time / rampup_time)
+        else:
+            F_0 = field_amplitude
 
-    return F_0*np.cos( Omg*t )
+    return F_0 * _apply_form(form, field_frequency * time)
 
+# @njit
+# def external_field_new( field_amplitude: float, field_frequency: float,  time: float, form: str = 'cos', rampup_time: float = 0, rampdown_time: float = 0, operation_time: float = -1 ) -> float:
+
+#     """External periodic force of amplitude F_0 and frequency Omg, cosine perturbation"""
+
+#     if operation_time > 0:
+#         if time < rampup_time:
+#             F_0 = field_amplitude*(time/rampup_time)
+#         elif time > operation_time - rampdown_time:
+#             F_0 = field_amplitude*(operation_time - time)/rampdown_time
+#         else:
+#             F_0 = field_amplitude
+    
+#     elif operation_time <= 0: # no rampdown
+#         if time < rampup_time:
+#             F_0 = field_amplitude*(time/rampup_time)
+#         else:
+#             F_0 = field_amplitude
+
+#     return F_0*dict_math_expressions[form]( field_frequency*time )
+
+def ext_field_old(F0, Omg, t):
+    return F0*np.cos( Omg*t )
+
+@njit
+def external_field(F0, Omg, t):
+    return F0*np.cos( Omg*t )
 
 @njit
 def chebyshev_nodes(a: float, b: float, N: int) -> np.ndarray:
