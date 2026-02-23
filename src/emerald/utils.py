@@ -1,17 +1,17 @@
 import numpy as np
-from numba import njit, vectorize
+from numba import njit, vectorize, prange
+from collections import namedtuple
 
+FieldParams = namedtuple('FieldParams', [
+    'amplitude',
+    'frequency',
+    'form',           # 'cos', 'sin', 'tan', ...
+    'envelope',       # 'linear', 'quadratic', 'cubic'
+    'rampup_time',
+    'rampdown_time',
+    'operation_time', # -1 = runs forever
+], defaults=[1.0, 1.0, 'cos', 'linear', 0.0, 0.0, -1.0])
 
-dict_math_expressions = {
-    'cos' : lambda x: np.cos(x),
-    'sin' : lambda x: np.sin(x),
-    'tan' : lambda x: np.tan(x),
-    'exp' : lambda x: np.exp(x),
-    'log' : lambda x: np.log(x),
-    'sqrt' : lambda x: np.sqrt(x),
-    'abs' : lambda x: np.abs(x),
-    'sign' : lambda x: np.sign(x)
-}
 
 @njit
 def inter_period( y2 : float, y1 : float, yo : float, x1 : float, dx : float ): #interpolation function
@@ -24,8 +24,23 @@ def inter_period( y2 : float, y1 : float, yo : float, x1 : float, dx : float ): 
 
     return period
 
+
 @njit
-def _apply_form(form: str, x: float) -> float:
+def _envelope(t_norm: float, shape: str) -> float:
+    """Normalized envelope: t_norm in [0,1] -> [0,1].
+    Same shape used for rampup and rampdown."""
+    if shape == 'linear':
+        return t_norm
+    elif shape == 'quadratic':
+        return t_norm ** 2
+    elif shape == 'cubic':
+        return t_norm ** 3
+    else:
+        return t_norm  # fallback
+
+
+@njit
+def _oscillation(form: str, x: float) -> float:
     if form == 'cos':
         return np.cos(x)
     elif form == 'sin':
@@ -43,60 +58,39 @@ def _apply_form(form: str, x: float) -> float:
     elif form == 'sign':
         return np.sign(x)
     else:
-        return np.cos(x)  # fallback — njit needs a guaranteed return
+        return np.cos(x)  # fallback
+
 
 @njit
-def external_field_new(
-    field_amplitude: float,
-    field_frequency: float,
-    time: float,
-    form: str = 'cos',
-    rampup_time: float = 0,
-    rampdown_time: float = 0,
-    operation_time: float = -1
-) -> float:
-    if operation_time > 0:
-        if time < rampup_time:
-            F_0 = field_amplitude * (time / rampup_time)
-        elif time > operation_time - rampdown_time:
-            F_0 = field_amplitude * (operation_time - time) / rampdown_time
-        else:
-            F_0 = field_amplitude
+def external_field_scalar(time: float, params) -> float:
+    # hard zeros outside [0, operation_time]
+    if time < 0.0:
+        return 0.0
+    if params.operation_time > 0.0 and time > params.operation_time:
+        return 0.0
+
+    # envelope coefficient
+    if params.rampup_time > 0.0 and time < params.rampup_time:
+        env = _envelope(time / params.rampup_time, params.envelope)
+    elif params.operation_time > 0.0 and params.rampdown_time > 0.0 \
+            and time > params.operation_time - params.rampdown_time:
+        env = _envelope((params.operation_time - time) / params.rampdown_time, params.envelope)
     else:
-        if time < rampup_time:
-            F_0 = field_amplitude * (time / rampup_time)
-        else:
-            F_0 = field_amplitude
+        env = 1.0
 
-    return F_0 * _apply_form(form, field_frequency * time)
+    return params.amplitude * env * _oscillation(params.form, params.frequency * time)
 
-# @njit
-# def external_field_new( field_amplitude: float, field_frequency: float,  time: float, form: str = 'cos', rampup_time: float = 0, rampdown_time: float = 0, operation_time: float = -1 ) -> float:
 
-#     """External periodic force of amplitude F_0 and frequency Omg, cosine perturbation"""
-
-#     if operation_time > 0:
-#         if time < rampup_time:
-#             F_0 = field_amplitude*(time/rampup_time)
-#         elif time > operation_time - rampdown_time:
-#             F_0 = field_amplitude*(operation_time - time)/rampdown_time
-#         else:
-#             F_0 = field_amplitude
-    
-#     elif operation_time <= 0: # no rampdown
-#         if time < rampup_time:
-#             F_0 = field_amplitude*(time/rampup_time)
-#         else:
-#             F_0 = field_amplitude
-
-#     return F_0*dict_math_expressions[form]( field_frequency*time )
-
-def ext_field_old(F0, Omg, t):
-    return F0*np.cos( Omg*t )
+@njit(parallel=True)
+def external_field_array(time: np.ndarray, params) -> np.ndarray:
+    out = np.empty(len(time))
+    for i in prange(len(time)):
+        out[i] = external_field_scalar(time[i], params)
+    return out
 
 @njit
-def external_field(F0, Omg, t):
-    return F0*np.cos( Omg*t )
+def external_field(F0, omg, t):
+    return F0 * np.cos(omg*t)
 
 @njit
 def chebyshev_nodes(a: float, b: float, N: int) -> np.ndarray:
