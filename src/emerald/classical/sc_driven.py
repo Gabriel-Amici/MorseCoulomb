@@ -6,7 +6,7 @@ from ..utils import external_field_scalar
 @njit
 def sC_diff_system(alpha: float, t: float, X: np.ndarray, field_params) -> np.ndarray:
 
-    """Differencial Equations system whose solution describes motion of a particle in the Morse-Coulomb potential."""
+    """Differencial Equations system whose solution describes motion of a particle in the soft-Coulomb potential."""
 
 
     r, p = X[0], X[1]

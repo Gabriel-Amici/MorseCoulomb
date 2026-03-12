@@ -1,14 +1,14 @@
 from emerald.potentials.sc_potential import sC_total_energy, sC_return_points
 from emerald.utils import FieldParams, external_field_array
 from emerald.classical.sc_unperturbed import sC_momentum
-from emerald.classical.sc_ionization import sC_ionization_amplitude_criteria
+from emerald.classical.msc_ionization import MsC_ionization_amplitude_criteria
  
 import numpy as np
 import matplotlib.pyplot as plt
 
 #potential parameters
 alpha = 1.
-E0 = -0.6689    #soft-Coulomb ground state
+E0 = -0.555510603954473    # Morse soft-Coulomb ground state
 
 #field parameters
 omg = 0.8
@@ -18,7 +18,7 @@ field_period = 2*np.pi/omg
 
 total_time = 50*field_period
 rampup_time = 6*field_period
-rampdown_time = 6*field_period
+rampdown_time = 1*field_period
 
 field_params = FieldParams(
     amplitude=0.5,
@@ -31,9 +31,9 @@ field_params = FieldParams(
 )
 
 dt = 1.e-4
-num_trajectories = 15
+num_trajectories = 80
 
-PIs = np.array(sC_ionization_amplitude_criteria(
+PIs = np.array(MsC_ionization_amplitude_criteria(
     alpha=alpha,
     E_0=E0,
     amplitudes=amplitudes,

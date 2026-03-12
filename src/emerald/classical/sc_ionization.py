@@ -52,23 +52,20 @@ def sC_ionization_probability_criteria(alpha: float, E_0: float, field_params, r
     for n in prange(0, Num_conditions):
 
         X = np.array([ r0s[n], p0s[n] ])
-
-        occurences = 0
-        energy_ionized = False
-        distance_ionized = False
         
         t = t_0
         while t < total_time + t_0:
             t += dt
             X = sC_driven_runge_kutta_4( alpha, t, X, field_params, dt )
             
-            if ( sC_total_energy(alpha, X[0], X[1]) > 0 ) and (energy_ionized == False):
-                ionized_energy += 1 ; energy_ionized = True 
-            if ( np.abs(X[0]) > (total_time/field_period)*rM ) and (distance_ionized == False):
-                ionized_distance += 1
-                distance_ionized = True
-    Pi_energy = ionized_energy/Num_conditions
+        if ( sC_total_energy(alpha, X[0], X[1]) > 0 ):
+            ionized_energy += 1
+        if ( np.abs(X[0]) > (total_time/field_period)*rM and \
+        ( sC_total_energy(alpha, X[0], X[1]) > 0 ) ):
+            ionized_distance += 1
+        
     Pi_distance = ionized_distance/Num_conditions
+    Pi_energy = ionized_energy/Num_conditions
 
     return np.array([Pi_distance, Pi_energy])
 
@@ -151,8 +148,86 @@ def sC_ionization_amplitude_criteria( alpha: float, E_0: float, amplitudes: np.n
         Pi_distance, Pi_energy = sC_ionization_probability_criteria( alpha, E_0, new_field_params, r0s, p0s, total_time, t_0, dt )
         Pis[amplitudes[f]] = np.array([Pi_distance, Pi_energy])
         done += 1
-        rounded_Pi_distance = round(Pi_distance, 4) ; rounded_Pi_energy = round(Pi_energy, 4)
+
+        rounded_Pi_distance = round(Pi_distance, 4)
+        rounded_Pi_energy = round(Pi_energy, 4)
+
         print("(", f, "/", len(amplitudes), ") Amplitude", amplitudes[f], "calculada: Pi_distance =", rounded_Pi_distance, "Pi_energy =", rounded_Pi_energy)
+    
+    sorted_keys = sorted(Pis.keys())
+    sorted_items = [Pis[key] for key in sorted_keys]
+    return sorted_items
+
+
+@njit(parallel=True)
+def sC_ionization_frequency_criteria( alpha: float, E_0: float, frequencies: np.ndarray, field_params, Num_trajectories: int, total_time: float, poly_degree: int = 100, t_0: float = 0, dt: float = 1.e-4 ):
+    
+    omg_n = sC_angular_frequency(alpha, E_0, dt)
+    theta_0 = sC_angle(alpha, E_0, 0, omg_n, 1.e-5)
+
+    angles = np.linspace( theta_0, np.pi, Num_trajectories )[1:Num_trajectories-1]
+
+    positions = sC_position(angles, alpha, E_0, poly_degree, 1.e-5)
+
+    Num_conditions = int((Num_trajectories-2)*2)
+    r0s = np.empty( Num_conditions )
+    p0s = np.empty( Num_conditions )
+
+
+    #duplicando o numero de condicoes iniciais para p e -p
+    for i in range(Num_trajectories-2):
+        r_0 = positions[i]
+        #posicao
+        r0s[2*i] = r_0
+        r0s[2*i+1] = r_0
+
+        #momento 
+        p_0 = sC_momentum(alpha, E_0, r_0)
+        p0s[2*i] = p_0 
+        p0s[2*i+1] = -p_0
+
+    print("Condições iniciais calculadas")
+
+    # In this function, field params should be passed in units 
+    # of field periods, new params will be set
+    rampup_time    = field_params.rampup_time
+    rampdown_time  = field_params.rampdown_time
+    operation_time = field_params.operation_time
+
+    Pis = { } 
+    done = 0
+    for o in prange(len(frequencies)):
+        frequencies[o] = round(frequencies[o], 5)
+        
+        field_period = 2*np.pi/frequencies[o]
+
+        # New field params
+        new_field_params = FieldParams(
+                            field_params.amplitude,
+                            field_params.frequencies[o],
+                            field_params.form,
+                            field_params.envelope,
+                            rampup_time*field_period,
+                            rampdown_time*field_period,
+                            operation_time*field_period)
+        Pi_distance, Pi_energy = sC_ionization_probability_criteria( 
+                            alpha, 
+                            E_0, 
+                            new_field_params, 
+                            r0s, 
+                            p0s, 
+                            total_time, 
+                            t_0, dt)
+        
+        
+        Pis[frequencies[o]] = np.array([Pi_distance, Pi_energy])
+        done += 1
+
+        rounded_Pi_distance = round(Pi_distance, 4)
+        rounded_Pi_energy = round(Pi_energy, 4)
+        
+        print("(", o, "/", len(frequencies), ") Frequency ", frequencies[o], "Calculated: " \
+              "Pi_distance =", rounded_Pi_distance, "Pi_energy =", rounded_Pi_energy)
     
     sorted_keys = sorted(Pis.keys())
     sorted_items = [Pis[key] for key in sorted_keys]

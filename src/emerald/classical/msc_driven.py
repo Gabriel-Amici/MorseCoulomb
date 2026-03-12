@@ -1,10 +1,10 @@
 import numpy as np
 from numba import njit
 from ..potentials.msc_potential import MsC_potential_1st_derivative, MsC_return_points
-from ..utils import external_field
+from ..utils import external_field_scalar
 
 @njit
-def MsC_diff_system(alpha: float, t: float, X: np.ndarray, F_0: float, Omg: float) -> np.ndarray:
+def MsC_diff_system(alpha: float, t: float, X: np.ndarray, field_params) -> np.ndarray:
 
     """Differencial Equations system whose solution describes motion of a particle in the Morse-Coulomb potential."""
 
@@ -12,23 +12,40 @@ def MsC_diff_system(alpha: float, t: float, X: np.ndarray, F_0: float, Omg: floa
     r, p = X[0], X[1]
 
     f1 = p
-    f2 = - MsC_potential_1st_derivative(alpha, r) - external_field(F_0, Omg, t)
+    f2 = - MsC_potential_1st_derivative(alpha, r) - external_field_scalar(t, field_params)
 
     return np.array([ f1, f2 ])
 
 
-@njit('f8[:](f8, f8, f8[:], f8, f8, f8)')
-def MsC_driven_runge_kutta_4(alpha: float, t: float, X: np.ndarray, F_0: float, Omg: float, dt:float = 1.e-4) -> np.ndarray:
+@njit
+def MsC_driven_runge_kutta_4(alpha: float, t: float, X: np.ndarray, field_params, dt:float = 1.e-4) -> np.ndarray:
 
     """Order 4 Runge-Kutta method for solving differencial equation systems"""
     
 
-    k1 = MsC_diff_system(alpha, t,         X,            F_0, Omg)
-    k2 = MsC_diff_system(alpha, t + 0.5*dt, X + 0.5*dt*k1, F_0, Omg)
-    k3 = MsC_diff_system(alpha, t + 0.5*dt, X + 0.5*dt*k2, F_0, Omg)
-    k4 = MsC_diff_system(alpha, t + dt,     X + dt*k3,     F_0, Omg)
+    k1 = MsC_diff_system(alpha, t,          X,             field_params)
+    k2 = MsC_diff_system(alpha, t + 0.5*dt, X + 0.5*dt*k1, field_params)
+    k3 = MsC_diff_system(alpha, t + 0.5*dt, X + 0.5*dt*k2, field_params)
+    k4 = MsC_diff_system(alpha, t + dt,     X + dt*k3,     field_params)
 
     return ( X + (dt/6)*(k1 + 2*k2 + 2*k3 + k4) )
 
 
+@njit
+def MsC_driven_trajectory(alpha: float, time_array: np.ndarray, X0: np.ndarray, field_params, dt: float = 1.e-4) -> np.ndarray:
 
+    time_step = time_array[1] - time_array[0]
+    steps_per_time_step = int(round(time_step / dt)) if dt < time_step else 1
+    integration_step = time_step / steps_per_time_step  # exact subdivision
+
+    trajectory = np.zeros((len(time_array), len(X0)))
+    trajectory[0] = X0
+
+    for i in range(1, len(time_array)):
+        intermediate_state = trajectory[i-1]
+        for j in range(steps_per_time_step):
+            time = time_array[i-1] + j * integration_step
+            intermediate_state = MsC_driven_runge_kutta_4(alpha, time, intermediate_state, field_params, integration_step)
+        trajectory[i] = intermediate_state
+
+    return trajectory

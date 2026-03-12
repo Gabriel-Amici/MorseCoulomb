@@ -1,3 +1,4 @@
+from emerald.classical.msc_ionization import MsC_ionization_amplitude_criteria
 from emerald.classical.sc_ionization import sC_ionization_amplitude_criteria
 from emerald.utils import FieldParams
 
@@ -5,10 +6,6 @@ import numpy as np
 import json
 from datetime import datetime
 import time
-
-#potential parameters
-alpha = 1.
-initial_energy = -0.6689    #soft-Coulomb ground state
 
 #field parameters
 field_frequency = 0.8
@@ -32,9 +29,13 @@ field_params = FieldParams(
 dt = 1.e-4                  #seems sufficient, 1.e-5 produces same trajectory 
 initial_conditions = 502    #1000 initial conditions
 
+#potential parameters for MsC
+alpha = 1.
+initial_energy = -0.555510603954473    # Morse soft-Coulomb ground state
+
 simulation_start_time = time.time()
 
-PIs = np.array(sC_ionization_amplitude_criteria(
+PIs = np.array(MsC_ionization_amplitude_criteria(
     alpha=alpha,
     E_0=initial_energy,
     amplitudes=field_amplitude_set,
@@ -66,7 +67,49 @@ output_data  = {
 
 now = datetime.now().strftime(r"%Y-%m-%d--%H-%M")
 
-filename = f"{now}--sC-classical-ionization-amplitude--a--{round(alpha, 3)}--Omg--{round(field_frequency, 3)}.json"
+filename = f"{now}--MsC-classical-ionization-amplitude--a--{alpha:.3f}--Omg--{field_frequency:.3f}.json"
 with open(filename, "w") as filehandle:
     json.dump(output_data, filehandle)
 
+
+#potential parameters for soft-Coulomb
+alpha = 1.
+initial_energy = -0.6689    #soft-Coulomb ground state
+
+simulation_start_time = time.time()
+
+PIs = np.array(sC_ionization_amplitude_criteria(
+    alpha=alpha,
+    E_0=initial_energy,
+    amplitudes=field_amplitude_set,
+    field_params=field_params, 
+    total_time=operation_time,
+    Num_trajectories=initial_conditions,
+    poly_degree=100,
+    dt=dt
+))
+
+simulation_end_time = time.time()
+simulation_duration_hours = round((simulation_end_time - simulation_start_time) / 3600, 2)
+
+output_data  = {
+        "parameters" : {
+            "potential": "soft-Coulomb",
+            "alpha" : alpha,
+            "initial_energy" : initial_energy,
+            "initial_conditions" : int( (initial_conditions-2)*2 ),
+            "field_amplitude_set" : list(field_amplitude_set),
+            "field_parameters" : field_params._asdict()
+        },
+        "results" : {
+            "ionization_probabilities_distance_criterion" : list(PIs[:, 0]),
+            "ionization_probabilities_energy_criterion" : list(PIs[:, 1]),
+            "simulation_duration_hours" : simulation_duration_hours
+        }
+    }
+
+now = datetime.now().strftime(r"%Y-%m-%d--%H-%M")
+
+filename = f"{now}--sC-classical-ionization-amplitude--a--{round(alpha, 3)}--Omg--{round(field_frequency, 3)}.json"
+with open(filename, "w") as filehandle:
+    json.dump(output_data, filehandle)

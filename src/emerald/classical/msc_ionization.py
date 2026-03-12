@@ -3,6 +3,7 @@ from numba import njit, prange
 from ..potentials.msc_potential import MsC_potential, MsC_return_points, MsC_total_energy
 from .msc_driven import MsC_driven_runge_kutta_4
 from .msc_unperturbed import MsC_angle, MsC_position, MsC_momentum, MsC_angular_frequency
+from ..utils import FieldParams
 
 @njit(parallel=True)
 def MsC_ionization_probability(alpha: float, E_0: float, F_0: float, Omg: float, r0s: np.ndarray, p0s: np.ndarray, t_0: float, total_time: float, dt: float = 1.e-5) -> float:
@@ -38,54 +39,49 @@ def MC_compensate_energy(alpha: float, r: float, p: float, F_0:float, FieldFrequ
 
 
 @njit(parallel=True)
-def MsC_ionization_probability_criteria(alpha: float, E_0: float, F_0: float, Omg: float, r0s: np.ndarray, p0s: np.ndarray, t_0: float, total_time: float, dt: float = 1.e-5) -> float:
+def MsC_ionization_probability_criteria(
+        alpha: float, 
+        E_0: float, 
+        field_params, 
+        r0s: np.ndarray, 
+        p0s: np.ndarray, 
+        total_time: float, 
+        t_0: float = 0, 
+        dt: float = 1.e-5) -> float:
 
     rM = MsC_return_points(alpha, E_0)[1]
     Num_conditions = len(r0s)
 
-    field_period = 2*np.pi/Omg
-    total_time = 100*field_period + t_0
+    field_period = 2*np.pi/field_params.frequency
 
-    ionized_8rM = 0
-    ionized_4rM = 0
-    ionized_comp = 0
+    ionized_energy = 0
+    ionized_distance = 0
 
     for n in prange(0, Num_conditions):
 
         X = np.array([ r0s[n], p0s[n] ])
 
-        occurences = 0
-        comp_ionized = False
-        rM8_ionized = False
-        rM4_ionized = False
+        energy_ionized = False
+        distance_ionized = False
         
         t = t_0
         while t < total_time + t_0:
             t += dt
-            X = MsC_driven_runge_kutta_4( alpha, t, X, F_0, Omg, dt )
-    
-            if (MC_compensate_energy(alpha, X[0], X[1], F_0, Omg, t) > 0):
-                occurences += 1
-            else:
-                occurences = 0
+            X = MsC_driven_runge_kutta_4( alpha, t, X, field_params, dt )
             
-            if (occurences >= 10) and (comp_ionized == False):
-                ionized_comp += 1
-                comp_ionized = True
+        if ( MsC_total_energy(alpha, X[0], X[1]) > 0 ) \
+        and (not energy_ionized):
+            ionized_energy += 1
 
-            if ( MsC_total_energy(alpha, X[0], X[1]) > 0 ): 
-                if ( X[0] > 8*rM ) and (rM8_ionized == False):
-                    ionized_8rM += 1
-                    rM8_ionized = True
-                if ( X[0] > 4*rM ) and (rM4_ionized == False):
-                    ionized_4rM += 1
-                    rM4_ionized = True
+        if ( np.abs(X[0]) > (total_time/field_period)*rM and MsC_total_energy(alpha, X[0], X[1]) > 0 ) \
+        and (not distance_ionized):
+            ionized_distance += 1
+        
+    Pi_distance = ionized_distance/Num_conditions
+    Pi_energy = ionized_energy/Num_conditions
 
-    Pi_8rM = ionized_8rM/Num_conditions
-    Pi_4rM = ionized_4rM/Num_conditions
-    Pi_comp = ionized_comp/Num_conditions
+    return np.array([Pi_distance, Pi_energy])
 
-    return np.array([Pi_8rM, Pi_4rM, Pi_comp])
 
 @njit(parallel=True)
 def MsC_ionization_amplitude( alpha: float, E_0: float, F_0s: np.ndarray, Omg: float, Num_trajectories: int, t_0: float, total_time: float, poly_degree: int, dt: float = 1.e-4 ):
@@ -124,7 +120,16 @@ def MsC_ionization_amplitude( alpha: float, E_0: float, F_0s: np.ndarray, Omg: f
 
 
 @njit(parallel=True)
-def MsC_ionization_amplitude_criteria( alpha: float, E_0: float, F_0s: np.ndarray, Omg: float, Num_trajectories: int, t_0: float, total_time: float, poly_degree: int, dt: float = 1.e-4 ):
+def MsC_ionization_amplitude_criteria( 
+        alpha: float, 
+        E_0: float, 
+        amplitudes: np.ndarray, 
+        field_params, 
+        Num_trajectories: int, 
+        total_time: float, 
+        poly_degree: int = 100, 
+        t_0: float = 0, 
+        dt: float = 1.e-4 ):
     
     omg_n = MsC_angular_frequency(alpha, E_0, dt)
     theta_0 = MsC_angle(alpha, E_0, 0, omg_n, 1.e-5)
@@ -152,11 +157,26 @@ def MsC_ionization_amplitude_criteria( alpha: float, E_0: float, F_0s: np.ndarra
     print("Condições iniciais calculadas")
 
     Pis = { }
-
-    for f in prange(len(F_0s)):
-        Pi_8rM, Pi_4rM, Pi_comp = MsC_ionization_probability_criteria( alpha, E_0, F_0s[f], Omg, r0s, p0s, t_0, total_time, dt )
-        Pis[F_0s[f]] = np.array([Pi_8rM, Pi_4rM, Pi_comp])
-
+    done = 0
+    for f in prange(len(amplitudes)):
+        amplitudes[f] = round(amplitudes[f], 5)
+        new_field_params = FieldParams(
+                            amplitudes[f],
+                            field_params.frequency,
+                            field_params.form,
+                            field_params.envelope,
+                            field_params.rampup_time,
+                            field_params.rampdown_time,
+                            field_params.operation_time)
+        Pi_distance, Pi_energy = MsC_ionization_probability_criteria( alpha, E_0, new_field_params, r0s, p0s, total_time, t_0, dt )
+        Pis[amplitudes[f]] = np.array([Pi_distance, Pi_energy])
+        done += 1
+        
+        rounded_Pi_distance = round(Pi_distance, 4)
+        rounded_Pi_energy = round(Pi_energy, 4)
+        
+        print("(", f, "/", len(amplitudes), ") Amplitude", amplitudes[f], "calculada: Pi_distance =", rounded_Pi_distance, "Pi_energy =", rounded_Pi_energy)
+    
     sorted_keys = sorted(Pis.keys())
     sorted_items = [Pis[key] for key in sorted_keys]
     return sorted_items
@@ -172,8 +192,8 @@ def MsC_ionization_frequency( alpha: float, E_0: float, F_0: float, Omgs: np.nda
     r0s = np.empty( Num_conditions )
     p0s = np.empty( Num_conditions )
 
-
-    for i in range(Num_trajectories-2):               #duplicando o numero de condicoes iniciais para p e -p
+    # Duplicating the number of initial conditions for p and -p
+    for i in range(Num_trajectories-2):
         r_0 = positions[i]
         #posicao
         r0s[2*i] = r_0
@@ -199,9 +219,8 @@ def MsC_ionization_frequency( alpha: float, E_0: float, F_0: float, Omgs: np.nda
     return sorted_items
 
 
-
-@njit #(parallel=True)
-def MsC_ionization_frequency_criteria( alpha: float, E_0: float, F_0: float, Omgs: np.ndarray, Num_trajectories: int, total_time: float, poly_degree: int, dt: float = 1.e-4 ):
+@njit(parallel=True)
+def MsC_ionization_frequency_criteria( alpha: float, E_0: float, frequencies: np.ndarray, field_params, Num_trajectories: int, total_time: float, poly_degree: int = 100, t_0: float = 0, dt: float = 1.e-4 ):
     
     omg_n = MsC_angular_frequency(alpha, E_0, dt)
     theta_0 = MsC_angle(alpha, E_0, 0, omg_n, 1.e-5)
@@ -215,7 +234,8 @@ def MsC_ionization_frequency_criteria( alpha: float, E_0: float, F_0: float, Omg
     p0s = np.empty( Num_conditions )
 
 
-    for i in range(Num_trajectories-2):               #duplicando o numero de condicoes iniciais para p e -p
+    #duplicando o numero de condicoes iniciais para p e -p
+    for i in range(Num_trajectories-2):
         r_0 = positions[i]
         #posicao
         r0s[2*i] = r_0
@@ -228,18 +248,50 @@ def MsC_ionization_frequency_criteria( alpha: float, E_0: float, F_0: float, Omg
 
     print("Condições iniciais calculadas")
 
-    Pis = {}
+    # In this function, field params should be passed in units 
+    # of field periods, new params will be set
+    rampup_time    = field_params.rampup_time
+    rampdown_time  = field_params.rampdown_time
+    operation_time = field_params.operation_time
 
-    for o in range(len(Omgs)):
-        Omg = Omgs[o]
-        t_0 = np.pi/(2*Omg)
-        Pi_8rM, Pi_4rM, Pi_comp = MsC_ionization_probability_criteria( alpha, E_0, F_0, Omg, r0s, p0s, t_0, total_time, dt )
-        Pis[Omg] = np.array([Pi_8rM, Pi_4rM, Pi_comp])
+    Pis = { } 
+    done = 0
+    for o in prange(len(frequencies)):
+        frequencies[o] = round(frequencies[o], 5)
+        
+        field_period = 2*np.pi/frequencies[o]
 
+        # New field params
+        new_field_params = FieldParams(
+                            field_params.amplitude,
+                            field_params.frequencies[o],
+                            field_params.form,
+                            field_params.envelope,
+                            rampup_time*field_period,
+                            rampdown_time*field_period,
+                            operation_time*field_period)
+        Pi_distance, Pi_energy = MsC_ionization_probability_criteria( 
+                            alpha, 
+                            E_0, 
+                            new_field_params, 
+                            r0s, 
+                            p0s, 
+                            total_time, 
+                            t_0, dt)
+        
+        
+        Pis[frequencies[o]] = np.array([Pi_distance, Pi_energy])
+        done += 1
+
+        rounded_Pi_distance = round(Pi_distance, 4)
+        rounded_Pi_energy = round(Pi_energy, 4)
+        
+        print("(", o, "/", len(frequencies), ") Frequency ", frequencies[o], "Calculated: " \
+              "Pi_distance =", rounded_Pi_distance, "Pi_energy =", rounded_Pi_energy)
+    
     sorted_keys = sorted(Pis.keys())
     sorted_items = [Pis[key] for key in sorted_keys]
     return sorted_items
-
 
 @njit #(parallel=True)
 def MsC_ionization_alphas( alphas: np.ndarray, E_0: float, F_0: float, Omg: float, Num_trajectories: int, t_0: float, total_time: float, poly_degree: int, dt: float = 1.e-4 ):
