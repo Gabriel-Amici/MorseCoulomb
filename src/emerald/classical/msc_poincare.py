@@ -1,11 +1,24 @@
 import numpy as np
-from numba import njit, prange, vectorize
+from numba import njit, prange
 from .msc_driven import MsC_driven_runge_kutta_4
 from .msc_unperturbed import MsC_momentum, MsC_angular_frequency, MsC_angle, MsC_action, MsC_position
 from ..potentials.msc_potential import MsC_total_energy
+from ..utils import FieldParams
+
+### GLARING PROBLEMS WITH THIS MODULE: ###
+'''
+1. Horible code formatting, lines are too long,
+   function calls become giant lines
+2. Calculation of angle-energy and angle-action
+   poincare maps could be done in a sinle function
+3. Outuput is badly shaped: (N, 2), takes up a lot
+of space to save just "["s, better to return two
+(1, N) arrays.
+4. Bottom line: this should be a method from a class
+'''
 
 @njit
-def MsC_Poincare_section_angle_action( alpha, E: float, F_0: float, Omg: float, section_points: int, r0: float, p0: float, t0: float = 0, dt: float = 1.e-4):
+def MsC_Poincare_section_angle_action( alpha, E0: float, field_params: FieldParams, section_points: int, r0: float, p0: float, t0: float = 0, dt: float = 1.e-4):
 
     X = np.empty(2)
 
@@ -18,21 +31,22 @@ def MsC_Poincare_section_angle_action( alpha, E: float, F_0: float, Omg: float, 
     t = t0
     j = 0
 
-    period = (2*np.pi/Omg)
+    period = (2*np.pi/field_params.frequency)
 
-    while (k < section_points) and (it < 1.e8) and ( np.isnan(X[0]) == False):
-        X = MsC_driven_runge_kutta_4( alpha, t, X, F_0, Omg, dt )
-        t += dt
+    while (k < section_points) and (it < 1.e8) and ( not np.isnan(X[0])):
+        X   = MsC_driven_runge_kutta_4( alpha, t, X, field_params, dt )
+        t  += dt
         it += 1
         if t > (k+1)*period+t0:
 
-            r = X[0] ; p = X[1]
-            E = MsC_total_energy(alpha, r, p)
+            r, p = X
+            E    = MsC_total_energy(alpha, r, p)
 
             if (E < 0):
 
-                omg_n = MsC_angular_frequency(alpha, E, 1.e-4)
-                theta = MsC_angle( alpha, E, r, omg_n, 1.e-5) ; action = MsC_action(alpha, E, 1.e-6)
+                omg_n  = MsC_angular_frequency(alpha, E, 1.e-4)
+                theta  = MsC_angle( alpha, E, r, omg_n, 1.e-5)
+                action = MsC_action(alpha, E, 1.e-6)
                 
                 if p >= 0:
                     aux = np.array([theta, action])
@@ -51,7 +65,7 @@ def MsC_Poincare_section_angle_action( alpha, E: float, F_0: float, Omg: float, 
     return Y
     
 
-def MsC_section_trajectories_angle_action(alpha, E: float, F_0: float, Omg: float, section_points: int, t0: float = 0, rs=np.ndarray, dt: float = 1.e-4):
+def MsC_section_trajectories_angle_action(alpha, E0: float, field_params: FieldParams, section_points: int, t0: float = 0, rs=np.ndarray, dt: float = 1.e-4):
     
     num_trajectories = len(rs)
     arrays = [np.zeros((section_points, 2)) for _ in range(num_trajectories * 2)]
@@ -62,15 +76,15 @@ def MsC_section_trajectories_angle_action(alpha, E: float, F_0: float, Omg: floa
 
     for i in range(num_trajectories):
         if not np.isnan(rs[i]):
-            r0s[2 * i] = rs[i]
-            r0s[2 * i + 1] = rs[i]
+            r0s[2*i]     = rs[i]
+            r0s[2*i + 1] = rs[i]
             
-            p0 = MsC_momentum(alpha, E, rs[i])
-            p0s[2 * i] = p0
-            p0s[2 * i + 1] = -p0
+            p0           = MsC_momentum(alpha, E0, rs[i])
+            p0s[2*i]     = p0
+            p0s[2*i + 1] = -p0
 
     for i in range(num_trajectories * 2):
-        array = MsC_Poincare_section_angle_action(alpha, E, F_0, Omg, section_points, r0s[i], p0s[i], t0 / Omg, dt)
+        array = MsC_Poincare_section_angle_action(alpha, E0, field_params, section_points, r0s[i], p0s[i], t0 / field_params.frequency, dt)
         # Find the index of the first row with all zeros
         first_zero_row = np.where(~array.any(axis=1))[0]
         # Trim the array up to the first row with all zeros
@@ -83,29 +97,27 @@ def MsC_section_trajectories_angle_action(alpha, E: float, F_0: float, Omg: floa
 
 
 @njit
-def MsC_poincare_angle_energy( alpha, F_0: float, Omg: float, section_points: int, r0: float, p0: float, t0: float = 0, dt: float = 1.e-4):
+def MsC_poincare_angle_energy( alpha: float, field_params: FieldParams, section_points: int, r0: float, p0: float, t0: float = 0, dt: float = 1.e-4):
 
     X = np.empty(2)
-
     Y = np.empty((section_points, 2))
 
-    X[0] = r0
-    X[1] = p0
-    k = 0
+    X  = np.array([r0, p0])
+    k  = 0
     it = 0
-    t = t0
-    j = 0
+    t  = t0
+    j  = 0
 
-    period = (2*np.pi/Omg)
+    period = (2*np.pi/field_params.frequency)
 
-    while (k < section_points) and (it < 1.e8) and ( np.isnan(X[0]) == False):
-        X = MsC_driven_runge_kutta_4( alpha, t, X, F_0, Omg, dt )
+    while (k < section_points) and (it < 1.e8) and ( not np.isnan(X[0]) ):
+        X = MsC_driven_runge_kutta_4( alpha, t, X, field_params, dt )
         t += dt
         it += 1
         if t > (k+1)*period+t0:
 
-            r = X[0] ; p = X[1]
-            E = MsC_total_energy(alpha, r, p)
+            r, p = X
+            E    = MsC_total_energy(alpha, r, p)
 
             if (E < 0):
 
@@ -124,15 +136,16 @@ def MsC_poincare_angle_energy( alpha, F_0: float, Omg: float, section_points: in
     return Y
     
 @njit(parallel=True)
-def MsC_poincare_energies(alpha, Energies: np.ndarray, F_0: float, Omg: float, section_points: int, num_trajectories: int, t0: float = 0, dt: float = 1.e-4):
+def MsC_poincare_energies(alpha, Energies: np.ndarray, field_params: FieldParams, section_points: int, num_trajectories: int, t0: float = 0, dt: float = 1.e-4):
     
-    num_energies = len(Energies)
+    # num_energies = len(Energies)
     all_results = []  # Will collect all arrays here
     
-    for e in range(len(Energies)):
+    for e in prange(len(Energies)):
         E = Energies[e]
     
-        angles = np.linspace(0, np.pi, num_trajectories)[1:num_trajectories-1]
+        # Initial conditions
+        angles    = np.linspace(0, np.pi, num_trajectories)[1:num_trajectories-1]
         positions = MsC_position(angles, alpha, E, 50, 1.e-5)
     
         Num_conditions = int((num_trajectories-2)*2)
@@ -148,13 +161,14 @@ def MsC_poincare_energies(alpha, Energies: np.ndarray, F_0: float, Omg: float, s
             p0s[2*i] = p_0 
             p0s[2*i+1] = -p_0
     
-        print("Condições iniciais calculadas")
+        print("Initial conditions calculated")
         
         # Store results from parallel computation
         arrays = [np.empty((0, 2)) for _ in range(Num_conditions)]
         
         for i in prange(Num_conditions):
-            arrays[i] = MsC_poincare_angle_energy(alpha, F_0, Omg, section_points, r0s[i], p0s[i], t0 / Omg, dt)
+            arrays[i] = MsC_poincare_angle_energy(alpha, field_params, section_points, 
+                                                  r0s[i], p0s[i], t0 / field_params.frequency, dt)
         
         # Sequential concatenation after parallel work
         for array in arrays:

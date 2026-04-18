@@ -199,7 +199,8 @@ def MsC_position( angles: np.ndarray, alpha: float, Ei: float, N: int, dr: float
         points = np.empty( (N, 2) )
 
         for i in range(N):
-            points[i, 0] = rs_mc[i] ; points[i, 1] = thetas_mc[i]
+            points[i, 0] = rs_mc[i]
+            points[i, 1] = thetas_mc[i]
 
         rs = np.array( [ bisection_method( ang, points, rmin_mc, rmax_mc, 1.e-8, 1000 ) for ang in angles ] ) #calculo das posicoes a partir dos angulos
         
@@ -207,6 +208,4 @@ def MsC_position( angles: np.ndarray, alpha: float, Ei: float, N: int, dr: float
             success = True
         else:
             N += 10
-        
-    #print(N)
     return rs

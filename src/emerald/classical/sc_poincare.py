@@ -1,38 +1,51 @@
 import numpy as np
-from numba import njit, prange, vectorize
+from numba import njit, prange
 from .sc_driven import sC_driven_runge_kutta_4
 from .sc_unperturbed import sC_momentum, sC_angular_frequency, sC_angle, sC_action, sC_position
 from ..potentials.sc_potential import sC_total_energy
+from ..utils import FieldParams
+
+### GLARING PROBLEMS WITH THIS MODULE: ###
+'''
+1. Horible code formatting, lines are too long,
+   function calls become giant lines
+2. Calculation of angle-energy and angle-action
+   poincare maps could be done in a sinle function
+3. Outuput is badly shaped: (N, 2), takes up a lot
+of space to save just "["s, better to return two
+(1, N) arrays.
+4. Bottom line: this should be a method from a class
+'''
 
 @njit
-def sC_Poincare_section_angle_action( alpha, E: float, F_0: float, Omg: float, section_points: int, r0: float, p0: float, t0: float = 0, dt: float = 1.e-4):
+def sC_Poincare_section_angle_action( alpha, E0: float, field_params: FieldParams, section_points: int, r0: float, p0: float, t0: float = 0, dt: float = 1.e-4):
 
     X = np.empty(2)
 
     Y = np.empty((section_points, 2))
 
-    X[0] = r0
-    X[1] = p0
+    X = [r0, p0]
     k = 0
     it = 0
     t = t0
     j = 0
 
-    period = (2*np.pi/Omg)
+    period = (2*np.pi/field_params.frequency)
 
-    while (k < section_points) and (it < 1.e8) and ( np.isnan(X[0]) == False):
-        X = sC_driven_runge_kutta_4( alpha, t, X, F_0, Omg, dt )
+    while (k < section_points) and (it < 1.e8) and (not np.isnan(X[0])):
+        X = sC_driven_runge_kutta_4( alpha, t, X, field_params, dt )
         t += dt
         it += 1
         if t > (k+1)*period+t0:
 
-            r = X[0] ; p = X[1]
-            E = sC_total_energy(alpha, r, p)
+            r, p = X
+            E    = sC_total_energy(alpha, r, p)
 
             if (E < 0):
 
-                omg_n = sC_angular_frequency(alpha, E, 1.e-4)
-                theta = sC_angle( alpha, E, r, omg_n, 1.e-5) ; action = sC_action(alpha, E, 1.e-6)
+                omg_n  = sC_angular_frequency(alpha, E, 1.e-4)
+                theta  = sC_angle( alpha, E, r, omg_n, 1.e-5)
+                action = sC_action(alpha, E, 1.e-6)
                 
                 if p >= 0:
                     aux = np.array([theta, action])
@@ -43,15 +56,11 @@ def sC_Poincare_section_angle_action( alpha, E: float, F_0: float, Omg: float, s
             k += 1
 
     Y = Y[:j]            
-    '''print( "F_0:", F_0,
-            "Omg: ", round(Omg, 3),
-            "Pontos:", k, 
-            "Iter.:", it,
-            "E:", round(E, 4))'''
+
     return Y
     
 
-def sC_section_trajectories_angle_action(alpha, E: float, F_0: float, Omg: float, section_points: int, t0: float = 0, rs=np.ndarray, dt: float = 1.e-4):
+def sC_section_trajectories_angle_action(alpha, E0: float, field_params: FieldParams, section_points: int, t0: float = 0, rs=np.ndarray, dt: float = 1.e-4):
     
     num_trajectories = len(rs)
     arrays = [np.zeros((section_points, 2)) for _ in range(num_trajectories * 2)]
@@ -65,12 +74,12 @@ def sC_section_trajectories_angle_action(alpha, E: float, F_0: float, Omg: float
             r0s[2 * i] = rs[i]
             r0s[2 * i + 1] = rs[i]
             
-            p0 = sC_momentum(alpha, E, rs[i])
+            p0 = sC_momentum(alpha, E0, rs[i])
             p0s[2 * i] = p0
             p0s[2 * i + 1] = -p0
 
     for i in range(num_trajectories * 2):
-        array = sC_Poincare_section_angle_action(alpha, E, F_0, Omg, section_points, r0s[i], p0s[i], t0 / Omg, dt)
+        array = sC_Poincare_section_angle_action(alpha, E0, field_params, section_points, r0s[i], p0s[i], t0 / field_params.frequency, dt)
         # Find the index of the first row with all zeros
         first_zero_row = np.where(~array.any(axis=1))[0]
         # Trim the array up to the first row with all zeros
@@ -83,29 +92,27 @@ def sC_section_trajectories_angle_action(alpha, E: float, F_0: float, Omg: float
 
 
 @njit
-def sC_poincare_angle_energy( alpha, F_0: float, Omg: float, section_points: int, r0: float, p0: float, t0: float = 0, dt: float = 1.e-4):
+def sC_poincare_angle_energy( alpha, field_params: FieldParams, section_points: int, r0: float, p0: float, t0: float = 0, dt: float = 1.e-4):
 
     X = np.empty(2)
-
     Y = np.empty((section_points, 2))
 
-    X[0] = r0
-    X[1] = p0
-    k = 0
+    X  = np.array([r0, p0])
+    k  = 0
     it = 0
-    t = t0
-    j = 0
+    t  = t0
+    j  = 0
 
-    period = (2*np.pi/Omg)
+    period = (2*np.pi/field_params.frequency)
 
-    while (k < section_points) and (it < 1.e8) and ( np.isnan(X[0]) == False):
-        X = sC_driven_runge_kutta_4( alpha, t, X, F_0, Omg, dt )
+    while (k < section_points) and (it < 1.e8) and (not np.isnan(X[0])):
+        X = sC_driven_runge_kutta_4( alpha, t, X, field_params, dt )
         t += dt
         it += 1
         if t > (k+1)*period+t0:
 
-            r = X[0] ; p = X[1]
-            E = sC_total_energy(alpha, r, p)
+            r, p = X
+            E    = sC_total_energy(alpha, r, p)
 
             if (E < 0):
 
@@ -124,9 +131,8 @@ def sC_poincare_angle_energy( alpha, F_0: float, Omg: float, section_points: int
     return Y
     
 @njit(parallel=True)
-def sC_poincare_energies(alpha, Energies: np.ndarray, F_0: float, Omg: float, section_points: int, num_trajectories: int, t0: float = 0, dt: float = 1.e-4):
+def sC_poincare_energies(alpha, Energies: np.ndarray, field_params: FieldParams, section_points: int, num_trajectories: int, t0: float = 0, dt: float = 1.e-4):
     
-    num_energies = len(Energies)
     all_results = []  # Will collect all arrays here
     
     for e in range(len(Energies)):
@@ -154,7 +160,7 @@ def sC_poincare_energies(alpha, Energies: np.ndarray, F_0: float, Omg: float, se
         arrays = [np.empty((0, 2)) for _ in range(Num_conditions)]
         
         for i in prange(Num_conditions):
-            arrays[i] = sC_poincare_angle_energy(alpha, F_0, Omg, section_points, r0s[i], p0s[i], t0 / Omg, dt)
+            arrays[i] = sC_poincare_angle_energy(alpha, field_params, section_points, r0s[i], p0s[i], t0 / field_params.frequency, dt)
         
         # Sequential concatenation after parallel work
         for array in arrays:

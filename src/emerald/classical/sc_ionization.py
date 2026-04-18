@@ -204,7 +204,7 @@ def sC_ionization_frequency_criteria( alpha: float, E_0: float, frequencies: np.
         # New field params
         new_field_params = FieldParams(
                             field_params.amplitude,
-                            field_params.frequencies[o],
+                            frequencies[o],
                             field_params.form,
                             field_params.envelope,
                             rampup_time*field_period,
