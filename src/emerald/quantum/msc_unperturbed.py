@@ -31,7 +31,7 @@ def MsC_hamiltonian(alpha, position_grid):
     V = np.diag(MsC_potential_vec(alpha, r_grid))  # Diagonal potential
     H = T + V
 
-    return H, position_grid
+    return H, r_grid
 
 
 def MsC_eigstates(H, position_grid, base_size):
