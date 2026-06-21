@@ -249,6 +249,7 @@ class KrotovResult:
     """Container for the output of a Krotov optimization run."""
 
     optimized_field: np.ndarray
+    initial_field: np.ndarray
     JT_history: np.ndarray
     n_iterations: int
     converged: bool
@@ -258,6 +259,8 @@ class KrotovResult:
     chi_history: np.ndarray | None = None
     elapsed_seconds: float = 0.0
     n_objectives: int = 1
+    initial_populations: np.ndarray | None = None
+    final_populations: np.ndarray | None = None
 
     # Per-objective diagnostics (only for multi-objective runs)
     JT_per_objective: np.ndarray | None = None
@@ -306,6 +309,9 @@ class KrotovResult:
                 'final_overlap': self.final_overlap,
                 'JT_history': self.JT_history.tolist(),
                 'optimized_field': self.optimized_field.tolist(),
+                'initial_field': self.initial_field.tolist(),
+                'initial_populations': self.initial_populations.tolist() if self.initial_populations is not None else None,
+                'final_populations': self.final_populations.tolist() if self.final_populations is not None else None,
             },
             'per_objective': (
                 {
@@ -484,6 +490,7 @@ class KrotovOptimizer:
         KrotovResult
         """
         t0 = time.time()
+        initial_field = self.current_field.copy()
         JT_history = np.zeros(self.max_iterations + 1)
 
         controls: dict[int, np.ndarray] | None = {} if self.store_histories else None
@@ -502,10 +509,10 @@ class KrotovOptimizer:
         chi_final = co_state_final_condition(final_state, self.psi_target)
         chi_hist = self._backward_propagate(self.current_field, chi_final)
 
+        guess_populations = np.abs(phi_hist) ** 2
+
         if self.store_histories:
             controls[0] = self.current_field.copy()
-            phi_opt[0] = phi_hist.copy()
-            chi_opt[0] = chi_hist.copy()
 
         converged = False
         overlap = overlap_0
@@ -570,8 +577,12 @@ class KrotovOptimizer:
         total_elapsed = time.time() - t0
         last = i
 
+        final_prop, _ = self._forward_propagate(self.current_field)
+        final_populations = np.abs(final_prop) ** 2
+
         return KrotovResult(
             optimized_field=self.current_field.copy(),
+            initial_field=initial_field,
             JT_history=JT_history[:last + 1],
             n_iterations=last,
             converged=converged,
@@ -581,6 +592,8 @@ class KrotovOptimizer:
             chi_history=chi_opt.get(last) if chi_opt is not None else None,
             elapsed_seconds=total_elapsed,
             n_objectives=1,
+            initial_populations=guess_populations,
+            final_populations=final_populations,
         )
 
 
@@ -746,6 +759,7 @@ class KrotovMultiOptimizer:
         KrotovResult
         """
         t0 = time.time()
+        initial_field = self.current_field.copy()
         JT_history = np.zeros(self.max_iterations + 1)
         JT_per_obj_history: list[np.ndarray] = []
         overlap_per_obj_history: list[np.ndarray] = []
@@ -774,6 +788,8 @@ class KrotovMultiOptimizer:
             chi_finals[k] = co_state_final_condition(final_states[k], obj.psi_target, weight=obj.weight)
 
         chi_hist = self._backward_propagate_all(self.current_field, chi_finals)
+
+        guess_populations = np.abs(phi_hist) ** 2
 
         if self.store_histories:
             controls[0] = self.current_field.copy()
@@ -862,8 +878,12 @@ class KrotovMultiOptimizer:
         # Final overlap is the weighted average for compatibility
         final_overlap_avg = float(np.mean(overlap_per_obj_arr[-1]))
 
+        final_prop, _, _ = self._forward_propagate_all(self.current_field)
+        final_populations = np.abs(final_prop) ** 2
+
         return KrotovResult(
             optimized_field=self.current_field.copy(),
+            initial_field=initial_field,
             JT_history=JT_history[:last + 1],
             n_iterations=last,
             converged=converged,
@@ -873,6 +893,8 @@ class KrotovMultiOptimizer:
             n_objectives=self.N_obj,
             JT_per_objective=JT_per_obj_arr,
             overlap_per_objective=overlap_per_obj_arr,
+            initial_populations=guess_populations,
+            final_populations=final_populations,
         )
 
 
@@ -1015,6 +1037,7 @@ class IonizationOptimizer:
         KrotovResult
         """
         t0 = time.time()
+        initial_field = self.current_field.copy()
         JT_history = np.zeros(self.max_iterations + 1)
 
         controls: dict[int, np.ndarray] | None = {} if self.store_histories else None
@@ -1032,6 +1055,8 @@ class IonizationOptimizer:
 
         chi_final = ionization_co_state_final(final_state, self.bound_mask)
         chi_hist = self._backward_propagate(self.current_field, chi_final)
+
+        guess_populations = np.abs(phi_hist) ** 2
 
         if self.store_histories:
             controls[0] = self.current_field.copy()
@@ -1095,8 +1120,12 @@ class IonizationOptimizer:
         total_elapsed = time.time() - t0
         last = i
 
+        final_prop, _ = self._forward_propagate(self.current_field)
+        final_populations = np.abs(final_prop) ** 2
+
         return KrotovResult(
             optimized_field=self.current_field.copy(),
+            initial_field=initial_field,
             JT_history=JT_history[:last + 1],
             n_iterations=last,
             converged=converged,
@@ -1104,4 +1133,6 @@ class IonizationOptimizer:
             controls=controls,
             elapsed_seconds=total_elapsed,
             n_objectives=1,
+            initial_populations=guess_populations,
+            final_populations=final_populations,
         )
