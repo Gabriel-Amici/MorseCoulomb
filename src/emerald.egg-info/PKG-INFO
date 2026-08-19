@@ -1,11 +1,11 @@
-Metadata-Version: 2.4
+Metadata-Version: 2.1
 Name: emerald
-Version: 1.0.0
+Version: 1.0.2
 Summary: A library for Morse-soft-Coulomb potential analysis
+Home-page: UNKNOWN
 Author: Gabriel A. Amici
-Requires-Dist: numpy
-Requires-Dist: numba
-Requires-Dist: scipy
-Dynamic: author
-Dynamic: requires-dist
-Dynamic: summary
+License: UNKNOWN
+Platform: UNKNOWN
+
+UNKNOWN
+

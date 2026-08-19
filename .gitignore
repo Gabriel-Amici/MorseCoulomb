@@ -9,3 +9,4 @@ __pycache__/*
 *.zip
 *.rar
 .venv/*
+src/emerald.egg-info/PKG-INFO
