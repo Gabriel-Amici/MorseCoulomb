@@ -1,11 +1,11 @@
 import numpy as np
 from numba import njit, vectorize
 
+
 @njit
 def MsC_potential(alpha: float, r: float) -> float:
 
     """Calculates the 1D Morse-Coulomb potencial given the position r"""
-    
 
     D = 1/alpha ; beta = 1/(alpha*np.sqrt(2))
 

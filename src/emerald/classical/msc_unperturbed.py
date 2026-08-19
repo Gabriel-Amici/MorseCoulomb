@@ -1,7 +1,13 @@
 import numpy as np
 from numba import njit
-from ..potentials.msc_potential import MsC_potential, MsC_potential_1st_derivative, MsC_return_points
-from ..utils import inter_period, chebyshev_nodes, check_no_duplicates, bisection_method
+
+from ..potentials.msc_potential import (
+    MsC_potential,
+    MsC_potential_1st_derivative,
+    MsC_return_points,
+)
+from ..utils import bisection_method, chebyshev_nodes, check_no_duplicates, inter_period
+
 
 @njit
 def MsC_momentum(alpha: float, E: float, r: float) -> float:
