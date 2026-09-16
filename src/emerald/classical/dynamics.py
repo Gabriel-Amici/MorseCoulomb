@@ -8,8 +8,8 @@ Base module for implementing Dynamics objects and Trajectory objects.
 
 import numpy as np
 
-from ...fields.base import Field
-from ...potentials.base import Potential
+from ..fields.base import Field
+from ..potentials.base import Potential
 
 
 class Dynamics:

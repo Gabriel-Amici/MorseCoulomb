@@ -1,4 +1,4 @@
-from .msc_potential import MsC_return_points
-from .coulomb_potential import C_potential
+from .base import Potential
+from .msc import MorseSoftCoulomb
 
-__all__ = ['MsC_return_points']
+__all__ = ['MorseSoftCoulomb', 'Potential']

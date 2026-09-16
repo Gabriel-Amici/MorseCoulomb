@@ -12,7 +12,7 @@ from abc import ABC, abstractmethod
 import numpy as np
 from scipy.integrate import solve_ivp
 
-from ..classical.dynamics.base import Trajectory
+from ..classical.dynamics import Trajectory
 
 
 class Integrator(ABC):

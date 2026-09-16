@@ -95,7 +95,7 @@ class Potential(ABC):
 
         return np.sqrt(radicand)
 
-    def action(self, E: float, N: int = 2000, dr: float = 1.e-6):
+    def action(self, E: float, N: int | None = 1500, dr: float | None = 1.e-6, method: str = "gauss"):
         """
         Classical action of the particle in the potential at a given energy
 
@@ -108,19 +108,32 @@ class Potential(ABC):
         b : float, optional
             Upper limit for finding return points, by default 10.0
         N : int, optional
-            Number of quadrature points for numerical integration, by default 2000
+            Number of quadrature points for numerical integration, 
+            by default 1500
+        dr : float, optional
+            Step size for numerical integration, by default 1.e-6
+        method : str, optional
+            Method for numerical integration, either "gauss" for Gauss-Legendre
+            quadrature or "simpson" for Simpson's 1/3 rule, by default "gauss"
         """
 
-        r1, r2 = self.return_points(E)
-        if None in (r1, r2):
+        rm, rM = self.return_points(E)
+        if np.isnan(rm) or np.isnan(rM):
             raise ValueError(f"Return points not found for energy E={E}.")
+        integrand = lambda r: self.momentum(E, r)
         if self.symmetric:
             # action = 2 * gauss_legendre_quadrature(lambda r: self.momentum(E, r), 0, r2, N) / np.pi
-            action = 2 * simpson13(lambda r: self.momentum(E, r), r1, r2, dr) / np.pi
+            if method == "gauss":
+                action = 2 * gauss_legendre_quadrature(integrand, rm, rM, N) / np.pi
+            else:
+                action = 2 * simpson13(integrand, rm, rM, N, dr) / np.pi
             return action
         
         # action = gauss_legendre_quadrature(lambda r: self.momentum(E, r), r1, r2, N) / np.pi
-        action = simpson13(lambda r: self.momentum(E, r), r1, r2, dr) / np.pi
+        if method == "gauss":
+            action = gauss_legendre_quadrature(integrand, rm, rM, N) / np.pi
+        else:
+            action = simpson13(integrand, rm, rM, N, dr) / np.pi
         return action
 
     def angular_frequency(self, E: float, dE: float = 1e-5, N: int = 2000):
@@ -178,7 +191,7 @@ class Potential(ABC):
         """
         rm, rM = self.return_points(E)
     
-        if rm is not None and rM is not None:
+        if not np.isnan(rm) and not np.isnan(rM):
             # bound: both edges are real turning points -> full closed orbit
             r = self._grid(rm, rM, N, dr)
             p = self.momentum(E, r)
@@ -186,7 +199,7 @@ class Potential(ABC):
             r_out = np.concatenate([r, r[::-1]])
             p_out = np.concatenate([p, -p[::-1]])
     
-        elif rm is not None:                             # unbound above: only rm is real
+        elif not np.isnan(rm) :                             # unbound above: only rm is real
             if r2 is None:
                 raise ValueError("Unbound above at this energy — supply r2.")
             r = self._grid(rm, r2, N, dr)
@@ -197,7 +210,7 @@ class Potential(ABC):
             r_out = np.concatenate([r[::-1], r])
             p_out = np.concatenate([-p[::-1], p])
     
-        elif rM is not None:                             # unbound below: only rM is real
+        elif not np.isnan(rM):                             # unbound below: only rM is real
             if r1 is None:
                 raise ValueError("Unbound below at this energy — supply r1.")
             r = self._grid(r1, rM, N, dr)

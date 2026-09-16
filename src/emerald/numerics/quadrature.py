@@ -35,7 +35,7 @@ def gauss_legendre_quadrature(func: callable, a: float, b: float, N: int) -> flo
     
     return result
 
-def simpson13(func: callable, a: float, b: float, dx: float = 1.e-5):
+def simpson13(func: callable, a: float, b: float, N: int | None = None, dx: float = 1.e-5):
     """
     General Simpson 1/3 quadrature for callable `func`
 
@@ -46,23 +46,27 @@ def simpson13(func: callable, a: float, b: float, dx: float = 1.e-5):
             The lower limit of integration.
         b : float
             The upper limit of integration.
-        dx : int
+        N : int | None
+            The number of intervals. Overrides `dx` if provided. 
+            Must be even for Simpson's rule.
+        dx : float
             The extent of each interval.
     """
-    n = round((b - a) / dx)
-    n += 1 if (n % 2 != 0) else 0
+    if N is not None:
+        n = N
+    else:
+        n = round((b - a) / dx)
 
-    if n % 2 != 0:
-        raise ValueError(
-            "Simpson's 1/3 rule requires an even number of intervals."
-        )
+    # Simpson 1/3 requires an even number of intervals
+    if n % 2:
+        n += 1
 
-    # x = a + np.arange(n + 1) * dx
-    # x = np.arange(a, b+dx, dx)
-    x = np.linspace(a, b, n)
+    x = np.linspace(a, b, n + 1)
     y = func(x)
 
-    return (dx / 3) * (
+    dx_actual = x[1] - x[0]
+
+    return (dx_actual / 3) * (
         y[0]
         + y[-1]
         + 4 * np.sum(y[1:-1:2])
