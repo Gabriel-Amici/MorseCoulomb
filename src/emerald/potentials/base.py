@@ -13,7 +13,7 @@ from ..numerics.quadrature import gauss_legendre_quadrature, simpson13
 class Potential(ABC):
     """
     Base class for 1D potentials, responsible for calculating the potential 
-    and its derivatives, as well as the classical return points.
+    and its derivatives, as well as the classical turning points.
     """
 
     def __init__(self, *args, **kwargs):
@@ -45,22 +45,8 @@ class Potential(ABC):
         r = np.random.uniform(1e-5, 2, 100)  # Random small distance from the origin
         return np.allclose(self.value(r), self.value(-r))
     
-    # def return_points(self, E: float = 0.0, a: float = -10.0, b: float = 10.0):
-    #     """
-    #     Classical return points of the potential
-        
-    #     General implementation finds the return points numerically by solving V(r) = E for a given energy E.
-    #     """
 
-    #     fn = lambda r: self.value(r) - E
-
-    #     # Find the return points by solving V(r) = E
-    #     r1 = brentq(fn, a, 0)  # Left return
-    #     r2 = brentq(fn, 0, b)   # Right return
-
-    #     return r1, r2
-
-    def return_points(self, E=0.0, a=-20.0, b=20.0, npts=10000):
+    def turning_points(self, E=0.0, a=-20.0, b=20.0, npts=10000):
     
         f = lambda x: self.value(x) - E
     
@@ -87,13 +73,28 @@ class Potential(ABC):
         """
         Classical momentum of the particle in the potential at a given
         position and energy.
+
+        Right at a classical turning point the radicand 2*(E - V(r)) may
+        only be slightly negative because of floating-point roundoff.  Such
+        values are clamped to zero so momentum returns 0 at the return
+        points instead of NaN.  Radicands that are genuinely negative
+        (classically forbidden region) are returned as NaN.
         """
         r = np.asarray(r)
-        radicand = 2 * (E - self.value(r))
-        mask = (radicand < 0) & np.isclose(radicand, 0, atol=1e-8)
-        radicand = np.where(mask, 0, radicand)
+        V = self.value(r)
+        radicand = 2 * (E - V)
 
-        return np.sqrt(radicand)
+        # Roundoff noise in the radicand is of order eps times the energy
+        # scale; the factor gives headroom for the whole evaluation chain
+        # while staying far below any physical radicand.
+        tol = 500 * np.finfo(float).eps * np.maximum(1.0, np.maximum(np.abs(E), np.abs(V)))
+
+        with np.errstate(invalid='ignore'):
+            radicand = np.where((radicand < 0) & (radicand > -tol), 0.0, radicand)
+            radicand = np.where(radicand < 0, np.nan, radicand)
+
+            return np.sqrt(radicand)
+
 
     def action(self, E: float, N: int | None = 1500, dr: float | None = 1.e-6, method: str = "gauss"):
         """
@@ -104,9 +105,9 @@ class Potential(ABC):
         E : float
             Energy of the particle
         a : float, optional
-            Lower limit for finding return points, by default -10.0
+            Lower limit for finding turning points, by default -10.0
         b : float, optional
-            Upper limit for finding return points, by default 10.0
+            Upper limit for finding turning points, by default 10.0
         N : int, optional
             Number of quadrature points for numerical integration, 
             by default 1500
@@ -117,9 +118,9 @@ class Potential(ABC):
             quadrature or "simpson" for Simpson's 1/3 rule, by default "gauss"
         """
 
-        rm, rM = self.return_points(E)
+        rm, rM = self.turning_points(E)
         if np.isnan(rm) or np.isnan(rM):
-            raise ValueError(f"Return points not found for energy E={E}.")
+            raise ValueError(f"turning points not found for energy E={E}.")
         integrand = lambda r: self.momentum(E, r)
         if self.symmetric:
             # action = 2 * gauss_legendre_quadrature(lambda r: self.momentum(E, r), 0, r2, N) / np.pi
@@ -136,7 +137,15 @@ class Potential(ABC):
             action = simpson13(integrand, rm, rM, N, dr) / np.pi
         return action
 
-    def angular_frequency(self, E: float, dE: float = 1e-5, N: int = 2000):
+    def _inv_momentum_integrand(self, phi, E, rm, rM):
+        L = rM - rm
+        r = rm + L * np.sin(phi)**2
+        dr_dphi = 2 * L * np.sin(phi) * np.cos(phi)
+
+        return dr_dphi / self.momentum(E, r)
+
+
+    def angular_frequency(self, E: float, N: int = 1000):
         """
         Classical angular frequency of the particle in the potential at a given energy
 
@@ -145,30 +154,77 @@ class Potential(ABC):
         E : float
             Energy of the particle
         N : int, optional
-            Number of quadrature points for numerical integration, by default 2000
+            Number of quadrature points for numerical integration, by default 1000
         """
-        return ( (1/(12*dE))*( self.action(E-2*dE, N)  
-                                  - 8*self.action(E-dE, N ) 
-                                  + 8*self.action(E+dE, N ) 
-                                  - self.action(E+2*dE, N ) )
-                                  )**(-1)
+        rm, rM = self.turning_points(E)
+        if np.isnan(rm) or np.isnan(rM):
+            raise ValueError(f"turning points not found for energy E={E}.")
 
-    def angle(self, E: float, r, dr: float = 1.e-5):
+        I = gauss_legendre_quadrature(
+            lambda phi: self._inv_momentum_integrand(phi, E, rm, rM), 
+            0, np.pi/2, N)
+
+        return np.pi / I
+
+    def period(self, E: float, N: int = 1000):
         """
-        Calculates the canonycal angle, the dynamical variable whose
+        Classical period of the particle in the potential at a given energy
+
+        Parameters
+        ----------
+        E : float
+            Energy of the particle
+        N : int, optional
+            Number of quadrature points for numerical integration, by default 1000
+        """
+        return 2 * np.pi / self.angular_frequency(E, N)
+
+    def frequency(self, E: float, N: int = 1000):
+        """
+        Classical frequency of the particle in the potential at a given energy
+
+        Parameters
+        ----------
+        E : float
+            Energy of the particle
+        N : int, optional
+            Number of quadrature points for numerical integration, by default 1000
+        """
+        return 1 / self.period(E, N)
+
+    def angle(self, E: float, r, N: int = 2000):
+        """
+        Calculates the canonical angle, the dynamical variable whose
         conjugate is the action.
         """
 
         r = np.asarray(r)
 
-        rm, _ = self.return_points(E)
-        freq = self.angular_frequency(E)
-
-        # integrand = lambda x: ( 2*(E - self.value(x)) )**(-1/2)
+        rm, rM = self.turning_points(E)
+        omg = self.angular_frequency(E, N)
 
         if r.size == 1:
-            # return freq*simpson13(integrand, rm, r, dr)
-            return freq*gauss_legendre_quadrature(lambda x: 1/self.momentum(E, x), rm, r, 3000)
+
+            phi_r = np.arcsin(np.sqrt((r - rm) / (rM - rm)))
+
+            if phi_r == 0:
+                return 0.0
+
+            return omg * gauss_legendre_quadrature(
+                lambda phi: self._inv_momentum_integrand(phi, E, rm, rM), 
+                0, phi_r, N)
+        
+        angles = np.zeros_like(r)
+        for i in range(r.size):
+            phi_r = np.arcsin(np.sqrt((r[i] - rm) / (rM - rm)))
+            if phi_r == 0:
+                angles[i] = 0.0
+            else:
+                angles[i] = omg * gauss_legendre_quadrature(
+                    lambda phi: self._inv_momentum_integrand(phi, E, rm, rM), 
+                    0, phi_r, N)
+        
+        return angles
 
     @staticmethod
     def _grid(lo: float, hi: float, N: int | None = None, dr: float | None = None) -> np.ndarray:
@@ -189,7 +245,7 @@ class Potential(ABC):
         potential is unbound at this energy (return_points gives None there) —
         they're ignored on any side that has a genuine return point.
         """
-        rm, rM = self.return_points(E)
+        rm, rM = self.turning_points(E)
     
         if not np.isnan(rm) and not np.isnan(rM):
             # bound: both edges are real turning points -> full closed orbit
@@ -221,7 +277,7 @@ class Potential(ABC):
     
         else:                                             # fully unbound: no fold at all
             if r1 is None or r2 is None:
-                raise ValueError("No return points at this energy — supply r1 and r2.")
+                raise ValueError("No turning points at this energy — supply r1 and r2.")
             r_out = self._grid(r1, r2, N, dr)
             p_out = self.momentum(E, r_out)
 

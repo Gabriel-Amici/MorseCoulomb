@@ -56,7 +56,7 @@ class MorseSoftCoulomb(Potential):
     #     else:
     #         return rm, rM
 
-    def return_points(self, energy):
+    def turning_points(self, energy):
 
         shape = np.shape(energy)
         energy = np.asarray(energy)
