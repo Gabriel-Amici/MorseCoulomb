@@ -5,6 +5,8 @@ Base module for potential implementation
 from abc import ABC, abstractmethod
 
 import numpy as np
+from scipy.integrate import cumulative_trapezoid
+from scipy.interpolate import RegularGridInterpolator
 from scipy.optimize import brentq
 
 from ..numerics.quadrature import gauss_legendre_quadrature, simpson13
@@ -96,7 +98,7 @@ class Potential(ABC):
             return np.sqrt(radicand)
 
 
-    def action(self, E: float, N: int | None = 1500, dr: float | None = 1.e-6, method: str = "gauss"):
+    def action(self, E: float, N: int = 500, dr: float | None = 1.e-6, method: str = "gauss"):
         """
         Classical action of the particle in the potential at a given energy
 
@@ -110,7 +112,7 @@ class Potential(ABC):
             Upper limit for finding turning points, by default 10.0
         N : int, optional
             Number of quadrature points for numerical integration, 
-            by default 1500
+            by default 500
         dr : float, optional
             Step size for numerical integration, by default 1.e-6
         method : str, optional
@@ -123,11 +125,10 @@ class Potential(ABC):
             raise ValueError(f"turning points not found for energy E={E}.")
         integrand = lambda r: self.momentum(E, r)
         if self.symmetric:
-            # action = 2 * gauss_legendre_quadrature(lambda r: self.momentum(E, r), 0, r2, N) / np.pi
             if method == "gauss":
-                action = 2 * gauss_legendre_quadrature(integrand, rm, rM, N) / np.pi
+                action = gauss_legendre_quadrature(integrand, rm, rM, N) / np.pi
             else:
-                action = 2 * simpson13(integrand, rm, rM, N, dr) / np.pi
+                action = simpson13(integrand, rm, rM, N, dr) / np.pi
             return action
         
         # action = gauss_legendre_quadrature(lambda r: self.momentum(E, r), r1, r2, N) / np.pi
@@ -145,7 +146,7 @@ class Potential(ABC):
         return dr_dphi / self.momentum(E, r)
 
 
-    def angular_frequency(self, E: float, N: int = 1000):
+    def angular_frequency(self, E: float, N: int = 500):
         """
         Classical angular frequency of the particle in the potential at a given energy
 
@@ -154,7 +155,8 @@ class Potential(ABC):
         E : float
             Energy of the particle
         N : int, optional
-            Number of quadrature points for numerical integration, by default 1000
+            Number of quadrature points for numerical integration, 
+            by default 500
         """
         rm, rM = self.turning_points(E)
         if np.isnan(rm) or np.isnan(rM):
@@ -166,7 +168,7 @@ class Potential(ABC):
 
         return np.pi / I
 
-    def period(self, E: float, N: int = 1000):
+    def period(self, E: float, N: int = 500):
         """
         Classical period of the particle in the potential at a given energy
 
@@ -175,11 +177,12 @@ class Potential(ABC):
         E : float
             Energy of the particle
         N : int, optional
-            Number of quadrature points for numerical integration, by default 1000
+            Number of quadrature points for numerical integration, 
+            by default 500
         """
         return 2 * np.pi / self.angular_frequency(E, N)
 
-    def frequency(self, E: float, N: int = 1000):
+    def frequency(self, E: float, N: int = 500):
         """
         Classical frequency of the particle in the potential at a given energy
 
@@ -188,14 +191,25 @@ class Potential(ABC):
         E : float
             Energy of the particle
         N : int, optional
-            Number of quadrature points for numerical integration, by default 1000
+            Number of quadrature points for numerical integration, 
+            by default 500
         """
         return 1 / self.period(E, N)
 
-    def angle(self, E: float, r, N: int = 2000):
+    def angle(self, E: float, r, N: int = 500):
         """
         Calculates the canonical angle, the dynamical variable whose
         conjugate is the action.
+
+        Parameters
+        ----------
+        E : float
+            Energy of the particle
+        r : float or np.ndarray
+            Position(s) of the particle
+        N : int, optional
+            Number of quadrature points for numerical integration, 
+            by default 500
         """
 
         r = np.asarray(r)
@@ -283,3 +297,96 @@ class Potential(ABC):
 
         if output in "rp":
             return {"rp": (r_out, p_out), "r": r_out, "p": p_out}[output]
+
+
+    def _batch_action(self, E, N: int = 500, M: int = 300):
+        E = np.atleast_1d(np.asarray(E, dtype=float))
+        bound = E < 0                      # only bound motion has a well-defined action
+        result = np.full(E.shape, np.nan)
+        if not np.any(bound):
+            return result
+
+        Eb = E[bound]
+        E_grid = np.linspace(Eb.min(), Eb.max(), M)     # M evaluations, not T
+        table = np.array([self.action(Ek, N=N) for Ek in E_grid])
+
+        result[bound] = np.interp(Eb, E_grid, table)
+        return result
+
+
+    def _batch_angle(self, E, r, M: int = 300, N: int = 500):
+        E, r = np.broadcast_arrays(
+            np.asarray(E, dtype=float),
+            np.asarray(r, dtype=float),
+        )
+    
+        shape = E.shape
+        Eall = E.ravel()
+        rall = r.ravel()
+    
+        result = np.full(shape, np.nan)
+    
+        bound = Eall < 0
+        if not np.any(bound):
+            return result
+    
+        Eq = Eall[bound]
+        rq = rall[bound]
+    
+        E_grid = np.linspace(Eq.min(), Eq.max(), M)
+    
+        rm = np.empty(M)
+        rM = np.empty(M)
+        omg = np.empty(M)
+    
+        for k, Ek in enumerate(E_grid):
+            rm[k], rM[k] = self.turning_points(Ek)
+            omg[k] = self.angular_frequency(Ek)
+    
+        phi_table = np.linspace(0.0, np.pi / 2, N)
+    
+        with np.errstate(divide="ignore", invalid="ignore"):
+            integrand = self._inv_momentum_integrand(
+                phi_table[None, :],
+                E_grid[:, None],
+                rm[:, None],
+                rM[:, None],
+            )
+    
+        integrand[:, 0] = integrand[:, 1]
+    
+        cum = cumulative_trapezoid(
+            integrand,
+            phi_table,
+            axis=1,
+            initial=0,
+        )
+    
+        interp = RegularGridInterpolator(
+            (E_grid, phi_table),
+            cum,
+            bounds_error=False,
+            fill_value=np.nan,
+        )
+    
+        rm_q = np.interp(Eq, E_grid, rm)
+        rM_q = np.interp(Eq, E_grid, rM)
+        omg_q = np.interp(Eq, E_grid, omg)
+    
+        phi_q = np.arcsin(
+            np.sqrt(
+                np.clip(
+                    (rq - rm_q) / (rM_q - rm_q),
+                    0,
+                    1,
+                )
+            )
+        )
+    
+        values = omg_q * interp(
+            np.column_stack([Eq, phi_q])
+        )
+    
+        result.flat[bound] = values
+    
+        return result
