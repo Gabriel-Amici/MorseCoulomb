@@ -17,6 +17,8 @@ class SinusoidField(Field):
         self.amplitude     = amplitude
         self.ang_frequency = ang_frequency
         self.phase         = phase
+        self.frequency     = self.ang_frequency / (2*np.pi)
+        self.period        = 1/self.frequency
 
     def value(self, times):
         return self.amplitude*np.sin( self.ang_frequency*times + self.phase )

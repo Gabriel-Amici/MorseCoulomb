@@ -9,6 +9,7 @@ Base module for implementing Dynamics objects and Trajectory objects.
 import numpy as np
 
 from ..fields.base import Field
+from ..integrators.base import Integrator
 from ..potentials.base import Potential
 
 
@@ -86,8 +87,49 @@ class Trajectory:
         # Θ.shape = (T, N) or (T,)
         return self._angle
 
-    def ionization_probability(self, criteria='energy'):
+    def ionization_probability(self, criterion='energy'):
 
-        if criteria=='energy':
+        if criterion=='energy':
             ionized = np.sum(self.energy[-1,...] > 0)
             return ionized/self.N_trajectories
+
+        # later: distance criterium
+
+class PoincareMap(Trajectory):
+
+    def __init__(self, time, states, potential):
+        super().__init__(time, states, potential)
+
+class ClassicalSystem:
+
+    def __init__(self, dynamics: Dynamics, states0: np.ndarray):
+
+        self.dynamics  = dynamics
+        self.states0   = states0
+        self.potential = dynamics.potential
+        self.field     = dynamics.field
+
+    def propagate(self, integrator: Integrator, t_span, t_eval: np.ndarray) -> "Trajectory":
+
+        return Trajectory(*integrator.propagate(self.dynamics, self.states0, t_span, t_eval),
+                          self.potential)
+
+    def poincare_map(self, integrator: Integrator, Nt: int = 100) -> "PoincareMap":
+        """
+        Compute the Poicaré Map of the system.
+
+        Parameters
+        ----------
+        integrator: Integrator
+            Integrator to be used.
+        Nt: int
+            How many field periods the particles will be propagated for.
+        """
+        if self.field is None:
+            raise Exception("Field must be defined")
+        t_eval = np.linspace(0, Nt*self.field.period, Nt)
+        t_span = (t_eval[0], t_eval[-1])
+
+        traj = self.propagate(integrator, t_span, t_eval)
+
+        return PoincareMap(np.arange(Nt), traj.states, self.potential)
