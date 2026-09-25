@@ -98,7 +98,7 @@ class Potential(ABC):
             return np.sqrt(radicand)
 
 
-    def action(self, E: float, N: int = 500, dr: float | None = 1.e-6, method: str = "gauss"):
+    def action(self, E: float, NQ: int = 500, dr: float | None = 1.e-6, method: str = "gauss"):
         """
         Classical action of the particle in the potential at a given energy
 
@@ -110,7 +110,7 @@ class Potential(ABC):
             Lower limit for finding turning points, by default -10.0
         b : float, optional
             Upper limit for finding turning points, by default 10.0
-        N : int, optional
+        NQ : int, optional
             Number of quadrature points for numerical integration, 
             by default 500
         dr : float, optional
@@ -126,16 +126,16 @@ class Potential(ABC):
         integrand = lambda r: self.momentum(E, r)
         if self.symmetric:
             if method == "gauss":
-                action = gauss_legendre_quadrature(integrand, rm, rM, N) / np.pi
+                action = gauss_legendre_quadrature(integrand, rm, rM, NQ) / np.pi
             else:
-                action = simpson13(integrand, rm, rM, N, dr) / np.pi
+                action = simpson13(integrand, rm, rM, NQ, dr) / np.pi
             return action
         
-        # action = gauss_legendre_quadrature(lambda r: self.momentum(E, r), r1, r2, N) / np.pi
+        # action = gauss_legendre_quadrature(lambda r: self.momentum(E, r), r1, r2, NQ) / np.pi
         if method == "gauss":
-            action = gauss_legendre_quadrature(integrand, rm, rM, N) / np.pi
+            action = gauss_legendre_quadrature(integrand, rm, rM, NQ) / np.pi
         else:
-            action = simpson13(integrand, rm, rM, N, dr) / np.pi
+            action = simpson13(integrand, rm, rM, NQ, dr) / np.pi
         return action
 
     def _inv_momentum_integrand(self, phi, E, rm, rM):
@@ -146,7 +146,7 @@ class Potential(ABC):
         return dr_dphi / self.momentum(E, r)
 
 
-    def angular_frequency(self, E: float, N: int = 500):
+    def angular_frequency(self, E: float, NQ: int = 500):
         """
         Classical angular frequency of the particle in the potential at a given energy
 
@@ -154,7 +154,7 @@ class Potential(ABC):
         ----------
         E : float
             Energy of the particle
-        N : int, optional
+        NQ : int, optional
             Number of quadrature points for numerical integration, 
             by default 500
         """
@@ -164,11 +164,11 @@ class Potential(ABC):
 
         I = gauss_legendre_quadrature(
             lambda phi: self._inv_momentum_integrand(phi, E, rm, rM), 
-            0, np.pi/2, N)
+            0, np.pi/2, NQ)
 
         return np.pi / I
 
-    def period(self, E: float, N: int = 500):
+    def period(self, E: float, NQ: int = 500):
         """
         Classical period of the particle in the potential at a given energy
 
@@ -176,13 +176,13 @@ class Potential(ABC):
         ----------
         E : float
             Energy of the particle
-        N : int, optional
+        NQ : int, optional
             Number of quadrature points for numerical integration, 
             by default 500
         """
-        return 2 * np.pi / self.angular_frequency(E, N)
+        return 2 * np.pi / self.angular_frequency(E, NQ)
 
-    def frequency(self, E: float, N: int = 500):
+    def frequency(self, E: float, NQ: int = 500):
         """
         Classical frequency of the particle in the potential at a given energy
 
@@ -190,13 +190,13 @@ class Potential(ABC):
         ----------
         E : float
             Energy of the particle
-        N : int, optional
+        NQ : int, optional
             Number of quadrature points for numerical integration, 
             by default 500
         """
-        return 1 / self.period(E, N)
+        return 1 / self.period(E, NQ)
 
-    def angle(self, E: float, r, N: int = 500):
+    def angle(self, E: float, r, NQ: int = 500):
         """
         Calculates the canonical angle, the dynamical variable whose
         conjugate is the action.
@@ -207,7 +207,7 @@ class Potential(ABC):
             Energy of the particle
         r : float or np.ndarray
             Position(s) of the particle
-        N : int, optional
+        NQ : int, optional
             Number of quadrature points for numerical integration, 
             by default 500
         """
@@ -215,7 +215,7 @@ class Potential(ABC):
         r = np.asarray(r)
 
         rm, rM = self.turning_points(E)
-        omg = self.angular_frequency(E, N)
+        omg = self.angular_frequency(E, NQ)
 
         if r.size == 1:
 
@@ -226,7 +226,7 @@ class Potential(ABC):
 
             return omg * gauss_legendre_quadrature(
                 lambda phi: self._inv_momentum_integrand(phi, E, rm, rM), 
-                0, phi_r, N)
+                0, phi_r, NQ)
         
         angles = np.zeros_like(r)
         for i in range(r.size):
@@ -236,7 +236,7 @@ class Potential(ABC):
             else:
                 angles[i] = omg * gauss_legendre_quadrature(
                     lambda phi: self._inv_momentum_integrand(phi, E, rm, rM), 
-                    0, phi_r, N)
+                    0, phi_r, NQ)
         
         return angles
 
@@ -299,7 +299,7 @@ class Potential(ABC):
             return {"rp": (r_out, p_out), "r": r_out, "p": p_out}[output]
 
 
-    def _batch_action(self, E, N: int = 500, M: int = 300):
+    def _batch_action(self, E, NQ: int = 500, M: int = 300):
         E = np.atleast_1d(np.asarray(E, dtype=float))
         bound = E < 0                      # only bound motion has a well-defined action
         result = np.full(E.shape, np.nan)
@@ -308,13 +308,13 @@ class Potential(ABC):
 
         Eb = E[bound]
         E_grid = np.linspace(Eb.min(), Eb.max(), M)     # M evaluations, not T
-        table = np.array([self.action(Ek, N=N) for Ek in E_grid])
+        table = np.array([self.action(Ek, NQ=NQ) for Ek in E_grid])
 
         result[bound] = np.interp(Eb, E_grid, table)
         return result
 
 
-    def _batch_angle(self, E, r, M: int = 300, N: int = 500):
+    def _batch_angle(self, E, r, M: int = 300, NQ: int = 500):
         E, r = np.broadcast_arrays(
             np.asarray(E, dtype=float),
             np.asarray(r, dtype=float),
@@ -343,7 +343,7 @@ class Potential(ABC):
             rm[k], rM[k] = self.turning_points(Ek)
             omg[k] = self.angular_frequency(Ek)
     
-        phi_table = np.linspace(0.0, np.pi / 2, N)
+        phi_table = np.linspace(0.0, np.pi / 2, NQ)
     
         with np.errstate(divide="ignore", invalid="ignore"):
             integrand = self._inv_momentum_integrand(
