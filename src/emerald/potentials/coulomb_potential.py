@@ -1,6 +1,6 @@
 import numpy as np
 from numba import njit
-from .msc_potential import MsC_return_points
+# from .msc_potential import MsC_return_points
 
 @njit
 def C_potential(r: float) -> float:
