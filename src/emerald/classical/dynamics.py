@@ -43,6 +43,35 @@ class StaticDynamics(Dynamics):
         
         return np.stack([f1, f2], axis=-1)
 
+class RegularizedDynamics(Dynamics):
+    """
+    Coulomb dynamics in KS-regularized extended phase space:
+    Q = (q1, p1, q2, p2), q1 = sqrt(r), q2 = physical time.
+    Integrated w.r.t. a fictitious parameter tau, not physical time.
+    """
+    time_index = 2    # which Q-component holds physical time
+
+    def dstate(self, tau, Q):
+        q1, p1, q2, p2 = Q[..., 0], Q[..., 1], Q[..., 2], Q[..., 3]
+        F    = self.field.value(q2)
+        dFdt = self.field.derivative(q2)
+
+        f1 = p1
+        f2 = -8*q1*p2 - 16*q1**3 * F
+        f3 = 4*q1**2
+        f4 = -4*q1**4 * dFdt
+        return np.stack([f1, f2, f3, f4], axis=-1)
+
+    def to_regularized(self, state, t0=0.0):
+        r0, p0 = state[..., 0], state[..., 1]
+        E0 = p0**2/2 + self.potential.value(r0)
+        q1 = np.sqrt(r0)
+        return np.stack([q1, 2*q1*p0, np.full_like(r0, t0), -E0], axis=-1)
+
+    def from_regularized(self, Q):
+        q1, p1 = Q[..., 0], Q[..., 1]
+        return np.stack([q1**2, p1/(2*q1)], axis=-1)
+
 class Trajectory:
     def __init__(self, time: np.ndarray, states: np.ndarray, 
                  potential: Potential):
@@ -160,6 +189,9 @@ class ClassicalSystem:
             pos = np.linspace(r0, r1, N // 2)
             mom = dynamics.potential.momentum(E, pos)
 
+            pos = pos[~np.isnan(mom)]
+            mom = mom[~np.isnan(mom)]
+
             states_plus  = np.column_stack((pos,  mom))
             states_minus = np.column_stack((pos, -mom))
             states0 = np.vstack((states_minus, states_plus))
@@ -167,6 +199,10 @@ class ClassicalSystem:
         elif abs(momenta_signs) == 1:
             pos = np.linspace(r0, r1, N)
             mom = dynamics.potential.momentum(E, pos)
+
+            pos = pos[~np.isnan(mom)]
+            mom = mom[~np.isnan(mom)]
+
 
             states0 = np.column_stack((pos, momenta_signs * mom))
 
@@ -212,6 +248,9 @@ class ClassicalSystem:
             pos = interpolator(angs)
             mom = dynamics.potential.momentum(E, pos)
 
+            pos = pos[~np.isnan(mom)]
+            mom = mom[~np.isnan(mom)]
+
             states_plus  = np.column_stack((pos,  mom))
             states_minus = np.column_stack((pos, -mom))
             states0 = np.vstack((states_minus, states_plus))
@@ -221,6 +260,10 @@ class ClassicalSystem:
             
             pos = interpolator(angs)
             mom = dynamics.potential.momentum(E, pos)
+
+            pos = pos[~np.isnan(mom)]
+            mom = mom[~np.isnan(mom)]
+
 
             states0 = np.column_stack((pos, momenta_signs * mom))
 

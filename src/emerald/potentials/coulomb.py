@@ -164,3 +164,17 @@ class Coulomb(Potential):
         p_out = np.where(q1 != 0, p1/(2*q1), np.infty)
 
         return (r_out, p_out)
+
+    def _batch_action(self, E, M: int = 300):
+            E = np.atleast_1d(np.asarray(E, dtype=float))
+            bound = E < 0                      # only bound motion has a well-defined action
+            result = np.full(E.shape, np.nan)
+            if not np.any(bound):
+                return result
+    
+            Eb = E[bound]
+            return self.action(Eb)
+
+    def _batch_angle(self, E, r):
+
+        return self.angle(E, r)

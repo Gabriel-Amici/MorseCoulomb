@@ -22,6 +22,11 @@ class Field:
         Evaluate the field at `times`
         """
 
+    def derivative(self, times):
+        """
+        Evaluate the field derivative at `times`
+        """
+
 class InterpolatedField(Field):
 
     def __init__(self, field_times: np.ndarray, field_vals: np.ndarray):

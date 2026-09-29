@@ -22,3 +22,7 @@ class SinusoidField(Field):
 
     def value(self, times):
         return self.amplitude*np.sin( self.ang_frequency*times + self.phase )
+
+    def derivative(self, times):
+        return self.ang_frequency*self.amplitude*\
+            np.cos(self.ang_frequency*times + self.phase)
