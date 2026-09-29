@@ -1,15 +1,14 @@
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 setup(
     name="emerald",
-    version="1.0.2",
+    version="2.0.0",
     package_dir={"": "."},  # Explicit mapping
     packages=find_packages(where="."),
-    description="A library for Morse-soft-Coulomb potential analysis",
+    description="A library for modeling 1D atoms",
     author="Gabriel A. Amici",
     install_requires=[
         "numpy",
-        "numba",
         "scipy"
     ],
 )
