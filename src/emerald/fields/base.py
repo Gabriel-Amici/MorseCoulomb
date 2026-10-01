@@ -4,8 +4,10 @@ Module for basic field definition
 
 import numpy as np
 
+from ..numerics.maths import AnalyticFunction, GridFunction
 
-class Field:
+
+class Field(AnalyticFunction):
     """
     Basic (electric) field class, given an array of field values and times, calling it results in an
     evaluation of the field (interpolated when necessary) at the specified time
@@ -14,33 +16,14 @@ class Field:
     def __init__(self):
         pass
     
-    def __call__(self, times):
-        return self.value(times)
 
-    def value(self, times):
-        """
-        Evaluate the field at `times`
-        """
-
-    def derivative(self, times):
-        """
-        Evaluate the field derivative at `times`
-        """
-
-class InterpolatedField(Field):
+class InterpolatedField(GridFunction):
 
     def __init__(self, field_times: np.ndarray, field_vals: np.ndarray):
-        super().__init__()
+        super().__init__(field_times, field_vals)
         if len(field_times) != len(field_vals):
             raise Warning(f"Time array and field array must be of same size! "
                           f"{len(field_times)} ≠ {len(field_vals)}")
 
         self.field_times = field_times
         self.field_vals  = field_vals
-
-    def value(self, times):
-        """
-        Evaluate the field at `times` interpolating `field_vals` and `field_times`
-        """
-        t = np.asarray(times)
-        return np.interp(t, self.field_times, self.field_vals)

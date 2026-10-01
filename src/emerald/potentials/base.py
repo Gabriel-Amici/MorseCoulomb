@@ -9,10 +9,11 @@ from scipy.integrate import cumulative_trapezoid
 from scipy.interpolate import RegularGridInterpolator
 from scipy.optimize import brentq
 
+from ..numerics.maths import AnalyticFunction
 from ..numerics.quadrature import gauss_legendre_quadrature, simpson13
 
 
-class Potential(ABC):
+class Potential(AnalyticFunction):
     """
     Base class for 1D potentials, responsible for calculating the potential 
     and its derivatives, as well as the classical turning points.
@@ -25,15 +26,6 @@ class Potential(ABC):
 
     def __call__(self, r):
         return self.value(r)
-
-    @abstractmethod
-    def value(self, position_array): ...
-
-    @abstractmethod
-    def first_derivative(self, position_array): ...
-
-    @abstractmethod
-    def second_derivative(self, position_array): ...
 
     def _check_symmetry(self):
         """

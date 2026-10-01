@@ -28,27 +28,26 @@ class AnalyticFunction:
     monitor(s) have to be supplied.
     """
 
-    f: Callable[[np.ndarray], np.ndarray]
-    df: Callable[[np.ndarray], np.ndarray] | None = None
-    d2f: Callable[[np.ndarray], np.ndarray] | None = None
+    value: Callable[[np.ndarray], np.ndarray]
+    first_derivative: Callable[[np.ndarray], np.ndarray] | None = None
+    second_derivative: Callable[[np.ndarray], np.ndarray] | None = None
 
     def __call__(self, x: np.ndarray) -> np.ndarray:
-        return self.f(np.asarray(x, dtype=float))
+        return self.value(np.asarray(x, dtype=float))
 
     def derivative(self, x: np.ndarray, order: int = 1) -> np.ndarray:
         x = np.asarray(x, dtype=float)
         if order == 1:
-            if self.df is None:
+            if self.first_derivative is None:
                 raise ValueError("no df supplied to this AnalyticFunction")
-            return self.df(x)
+            return self.first_derivative(x)
         if order == 2:
-            if self.d2f is None:
+            if self.second_derivative is None:
                 raise ValueError("no d2f supplied to this AnalyticFunction")
-            return self.d2f(x)
+            return self.second_derivative(x)
         raise NotImplementedError(f"order-{order} derivatives not supported")
 
 
-@dataclass
 class GridFunction:
     """Wraps a fine grid + evaluated values -- no analytic form required.
 
@@ -61,12 +60,9 @@ class GridFunction:
     grid noise badly under naive differencing.
     """
 
-    x_grid: np.ndarray
-    y_grid: np.ndarray
-
-    def __post_init__(self) -> None:
-        x = np.asarray(self.x_grid, dtype=float)
-        y = np.asarray(self.y_grid, dtype=float)
+    def __init__(self, x_grid: np.ndarray, y_grid: np.ndarray) -> None:
+        x = np.asarray(x_grid, dtype=float)
+        y = np.asarray(y_grid, dtype=float)
 
         order = np.argsort(x)
 

@@ -114,6 +114,29 @@ class CurvatureMonitor(Monitor):
         kappa = np.abs(d2) / (1.0 + d1 ** 2) ** 1.5
         return self.baseline + self.lamda * kappa
 
+class SuperGaussianMonitor(Monitor):
+
+    def __init__(self, lamda: float = 1.0,
+                 sigma_R: float = 1.0, sigma_L: float = 1.0,
+                 center: float = 0.0, p: float = 2) -> None:
+        self.lamda = lamda
+        self.sigma_R, self.sigma_L = sigma_R, sigma_L
+        self.center = center
+        self.p = p
+
+    def __call__(self, func: Differentiable, x: np.ndarray) -> np.ndarray:
+        exponent = np.where( x >= self.center,
+                             -np.abs((x - self.center) / self.sigma_R) ** self.p,
+                             -np.abs((x - self.center) / self.sigma_L) ** self.p)
+        return self.lamda * np.exp(exponent)
+
+class LogarithmicTailMonitor(Monitor):
+
+    def __init__(self, lamda: float = 1.0, L: float = 1.0) -> None:
+        self.lamda, self.L = lamda, L
+
+    def __call__(self, func: Differentiable, x: np.ndarray) -> np.ndarray:
+        return self.lamda*np.where( x >= 0, 1/(x+self.L), 1/self.L)
 
 # --------------------------------------------------------------------------
 # 3. The sampler: build the equidistribution CDF once, draw samples many times

@@ -2,27 +2,53 @@ from typing import Protocol
 from warnings import warn
 
 import numpy as np
-from emerald.numerics.integration import gauss_legendre_quadrature
 from scipy.interpolate import BSpline, interp1d
 from scipy.linalg import toeplitz
+
+from emerald.numerics.quadrature import gauss_legendre_quadrature
 
 
 class Representation(Protocol):
     number_functions: int
+    normalization: float | None
+    measure: float
     overlap: np.ndarray
     kinetic: np.ndarray
 
     def braket(self, func: callable) -> np.ndarray: ...
     def reconstruct(self, coeffs: np.ndarray) -> callable: ...
-    def constrained_basis(self, left, right) -> np.ndarray: ...
+    def constrained_basis(self, left=None, right=None) -> np.ndarray: ...
 
 
 class FourierGridBasis(Representation):
 
     def __init__(self, position_grid: np.ndarray):
-        assert len(position_grid) // 2 == 1
-        self.position_grid    = np.asarray(position_grid)
+        position_grid = np.asarray(position_grid)
+        assert len(position_grid) % 2 == 1
+
+        # `kinetic` and the derivative stencil of `constrained_basis` both
+        # assume a *uniform* grid, so a non-uniform one has to be rejected
+        # instead of silently producing a wrong operator.
+        steps = np.diff(position_grid)
+        if not np.allclose(steps, steps[0]):
+            raise ValueError(
+                "FourierGridBasis requires a uniformly spaced grid; got "
+                f"spacing varying between {steps.min():.3e} and "
+                f"{steps.max():.3e}. Resample the grid first."
+            )
+
+        self.position_grid    = position_grid
+        self.dr               = steps[0]
         self.number_functions = len(position_grid)
+        # The eigenvectors of the discretized problem are Euclidean-normalized
+        # (sum c_i^2 = 1). Physical wavefunctions on the grid satisfy
+        # sum c_i^2 * dr = 1, hence the 1 / sqrt(dr) prefactor.
+        self.normalization    = 1 / np.sqrt(self.dr)
+        # The raw basis functions are the delta-like samples
+        # delta(x - x_i) / sqrt(dr), so every integral picks up a factor dr.
+        # `braket` returns the bare collocation matrix and `Spectrum.matrix`
+        # applies this weight.
+        self.measure           = self.dr
 
     @property
     def overlap(self):
@@ -53,12 +79,61 @@ class FourierGridBasis(Representation):
         return np.diag( func(self.position_grid) )
 
     def reconstruct(self, coeffs):
-        return interp1d(self.position_grid, coeffs*self.position_grid)
+        return interp1d(self.position_grid, coeffs)
 
-    def constrained_basis(self, left, right):
-        # This method doesn't support different 
-        # boundary conditions
+    def constrained_basis(self, left=None, right=None):
+        """
+        Only the periodic (wrap-around) case is supported, so this returns the
+        identity and accepts no boundary conditions.
+
+        Parameters
+        ----------
+        left | right : None
+            Must be None.
+
+        Raises
+        ------
+        NotImplementedError
+            If either boundary condition is not None.
+
+        Notes
+        -----
+        The Fourier grid is a *momentum* basis: the grid points are
+        collocation points for a Fourier series,
+
+            psi(x_j) = sum_l c_l exp(2 pi i l j / (N-1)),
+
+        so no basis function is "located at" a boundary and there is nothing
+        to clip out the way there is for the local B-spline functions.
+
+        Imposing a boundary condition by constraining or deleting the
+        boundary degrees of freedom does not work here. That trick is
+        equivalent to the Dirichlet realization only for a *local* stencil
+        (finite differences); the Fourier operator is nonlocal, so
+        compressing it does not impose the condition in function space. The
+        eigenvalues stay ~2x off the box spectrum and do not converge as the
+        grid is refined.
+
+        The correct way to impose a boundary condition in an FGH scheme is to
+        choose the transform, which builds the condition into the basis:
+
+        * periodic  -> DFT, circulant kinetic matrix;
+        * dirichlet -> DST-I (sine basis, vanishes identically at both ends);
+        * neumann   -> DCT (cosine basis).
+
+        `kinetic` currently implements neither cleanly and carries spurious
+        zero modes, so this class is not usable for a converged calculation.
+        """
+        if left is not None or right is not None:
+            raise NotImplementedError(
+                "FourierGridBasis does not support boundary conditions: the "
+                "momentum basis has no boundary-localized functions to "
+                "constrain. Use left=right=None (periodic), or switch to a "
+                "representation that supports them, e.g. BSplineBasis."
+            )
+
         return np.eye(self.number_functions)
+
 
 class BSplineBasis(Representation):
 
@@ -82,6 +157,14 @@ class BSplineBasis(Representation):
         self.basis_functions       = self.generate_basis_functions()
         self.overlap               = self.overlap_matrix()
         self.kinetic               = self.kinetic_matrix()
+
+        # `eigh(H, S)` already returns S-orthonormal states, i.e. physically
+        # normalized wavefunctions: integral phi_n^2 dx = 1. Nothing to do.
+        self.normalization         = None
+        # The B-spline basis functions are genuine functions and `braket`
+        # integrates them with Gauss-Legendre quadrature, so the integral
+        # weight is already baked in.
+        self.measure               = 1.0
 
 
     def multiplicity_from_breakpoints(self):
@@ -356,5 +439,4 @@ class BSplineBasis(Representation):
         """
         Reconstructs a callable function given the basis coefficients.
         """
-        print("Hi")
         return BSpline(self.knot_sequence, coeffs, self.degree, extrapolate=False)

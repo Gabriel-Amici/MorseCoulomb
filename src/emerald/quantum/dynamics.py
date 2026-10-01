@@ -10,7 +10,7 @@ Conventions
   imposed). `constraint` maps them back to the raw basis of the representation.
 """
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 from scipy.linalg import eigh
@@ -113,12 +113,17 @@ class Spectrum:
         Eigenenergies in ascending order;
 
     states : `np.ndarray`, shape (n_constrained, n_states)
-        Eigenvectors, one per column, in the *constrained* basis;
+        Eigenvectors, one per column, in the *constrained* basis, rescaled
+        to physical wavefunctions (see `Representation.normalization`);
 
     constraint : `np.ndarray`, shape (n_functions, n_constrained)
         Matrix C such that `C @ states[:, n]` are the coefficients of state
         `n` in the raw basis of the representation (see
         `Representation.constrained_basis`);
+
+        `states` is stored in the constrained basis *after* normalization, so
+        the reconstruction order matters: `wavefunction` applies C to the
+        normalized coefficients, never the other way round.
 
     threshold : `float`
         Energy separating bound from continuum states. States with
@@ -137,10 +142,28 @@ class Spectrum:
     states: np.ndarray
     constraint: np.ndarray
     threshold: float = 0.0
+    # Bookkeeping only, so that `__post_init__` normalizes exactly once and
+    # `truncate` (which round-trips through `dataclasses.replace`) does not
+    # rescale an already-normalized spectrum.
+    _normalized: bool = field(default=False, repr=False, compare=False)
 
     # ------------------------------------------------------------------
     # Basic inspection
     # ------------------------------------------------------------------
+
+    def __post_init__(self):
+        """
+        Rescale `states` from the internal normalization of the eigenproblem
+        to physical wavefunctions, if the representation asks for it.
+        """
+        if self._normalized:
+            return
+
+        normalization = getattr(self.representation, "normalization", None)
+        if normalization is not None:
+            self.states = normalization * self.states
+
+        self._normalized = True
 
     @property
     def n_states(self) -> int:
@@ -198,7 +221,12 @@ class Spectrum:
         its own raw basis, B_ij = <B_i| f |B_j>. An eigenstate has raw-basis
         coefficients `a_n = C @ states[:, n]`, so
 
-            M = A.T @ B @ A,        A = constraint @ states.
+            M = measure * A.T @ B @ A,     A = constraint @ states.
+
+        `measure` is the quadrature weight of one raw basis function: `dr` for
+        a collocation grid whose `braket` returns the bare collocation
+        matrix, `1` for a basis whose `braket` already integrates (e.g.
+        B-splines).
 
         The result is real and symmetric (states are real), shape
         (n_states, n_states).
@@ -218,7 +246,7 @@ class Spectrum:
         """
         B = self.representation.braket(func)
         A = self.constraint @ self.states
-        return A.T @ B @ A
+        return self.representation.measure * (A.T @ B @ A)
 
     def projector(self, states) -> np.ndarray:
         """
@@ -264,9 +292,12 @@ class Spectrum:
 
     def wavefunction(self, n: int) -> callable:
         """Callable for the n-th eigenfunction of the quantum system."""
-        # NOTE: the constraint matrix must be applied here, otherwise the
-        # number of coefficients does not match the raw basis once boundary
-        # conditions removed some functions.
+        # The constraint must be applied to the *normalized* coefficients:
+        # `states` is a (n_constrained,) vector, while `reconstruct` expects
+        # (n_functions,) coefficients in the raw basis of the representation.
+        # Reversing the order, or normalizing after applying C, silently
+        # rescales the wavefunction whenever boundary conditions removed
+        # functions from the basis.
         return self.representation.reconstruct(self.constraint @ self.states[:, n])
 
     # ------------------------------------------------------------------
@@ -275,7 +306,7 @@ class Spectrum:
 
     @classmethod
     def from_representation(cls, representation: Representation,
-                            potential: callable, left_bc, right_bc,
+                            potential: callable, left_bc=None, right_bc=None,
                             threshold: float = 0.0):
         """
         Builds and diagonalizes H0 in the given representation.
