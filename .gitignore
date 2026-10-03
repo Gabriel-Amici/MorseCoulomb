@@ -3,6 +3,7 @@ __pycache__/*
 *.svg
 *.pdf
 *.json
+*.gif
 *.mp4
 *.png
 *.pyc

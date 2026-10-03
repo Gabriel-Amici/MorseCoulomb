@@ -1,5 +1,16 @@
 import numpy as np
-from numba import njit, vectorize
+from numba import njit, vectorize, prange
+from collections import namedtuple
+
+FieldParams = namedtuple('FieldParams', [
+    'amplitude',
+    'frequency',
+    'form',           # 'cos', 'sin', 'tan', ...
+    'envelope',       # 'linear', 'quadratic', 'cubic'
+    'rampup_time',
+    'rampdown_time',
+    'operation_time', # -1 = runs forever
+], defaults=[1.0, 1.0, 'cos', 'linear', 0.0, 0.0, -1.0])
 
 
 @njit
@@ -13,13 +24,73 @@ def inter_period( y2 : float, y1 : float, yo : float, x1 : float, dx : float ): 
 
     return period
 
+
 @njit
-def external_field( F_0: float, Omg: float, t ):
+def _envelope(t_norm: float, shape: str) -> float:
+    """Normalized envelope: t_norm in [0,1] -> [0,1].
+    Same shape used for rampup and rampdown."""
+    if shape == 'linear':
+        return t_norm
+    elif shape == 'quadratic':
+        return t_norm ** 2
+    elif shape == 'cubic':
+        return t_norm ** 3
+    else:
+        return t_norm  # fallback
 
-    """External periodic force of amplitude F_0 and frequency Omg, cosine perturbation"""
 
-    return F_0*np.cos( Omg*t )
+@njit
+def _oscillation(form: str, x: float) -> float:
+    if form == 'cos':
+        return np.cos(x)
+    elif form == 'sin':
+        return np.sin(x)
+    elif form == 'tan':
+        return np.tan(x)
+    elif form == 'exp':
+        return np.exp(x)
+    elif form == 'log':
+        return np.log(x)
+    elif form == 'sqrt':
+        return np.sqrt(x)
+    elif form == 'abs':
+        return np.abs(x)
+    elif form == 'sign':
+        return np.sign(x)
+    else:
+        return np.cos(x)  # fallback
 
+
+@njit
+def external_field_scalar(time: float, params) -> float:
+    # hard zeros outside [0, operation_time]
+    if time < 0.0:
+        return 0.0
+    if params.operation_time > 0.0 and time > params.operation_time:
+        return 0.0
+
+    # envelope coefficient
+    if params.rampup_time > 0.0 and time < params.rampup_time:
+        env = _envelope(time / params.rampup_time, params.envelope)
+    elif params.operation_time > 0.0 and params.rampdown_time > 0.0 \
+            and time > params.operation_time - params.rampdown_time:
+        env = _envelope((params.operation_time - time) / params.rampdown_time, params.envelope)
+    else:
+        env = 1.0
+
+    return params.amplitude * env * _oscillation(params.form, params.frequency * time)
+
+
+@njit(parallel=True)
+def external_field_array(time: np.ndarray, params) -> np.ndarray:
+    out = np.empty(len(time))
+    for i in prange(len(time)):
+        out[i] = external_field_scalar(time[i], params)
+    return out
+
+@njit
+def external_field(F0, omg, t):
+    return F0 * np.cos(omg*t)
 
 @njit
 def chebyshev_nodes(a: float, b: float, N: int) -> np.ndarray:
