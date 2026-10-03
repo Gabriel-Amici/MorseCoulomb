@@ -64,12 +64,12 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import dataclass, field, asdict
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from typing import Callable, Any
+from typing import Any
 
 import numpy as np
-
 
 # ---------------------------------------------------------------------------
 # Shape functions
@@ -128,7 +128,7 @@ def single_step_evolution(
 
 def single_step_inverse_evolution(
     state: np.ndarray,
-    external_field_val: complex | float,
+    external_field_val: complex,
     exp_H0: np.ndarray,
     Xi_vals: np.ndarray,
     Xi_vecs: np.ndarray,
