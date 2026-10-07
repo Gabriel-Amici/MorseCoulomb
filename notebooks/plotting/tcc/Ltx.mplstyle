@@ -1,0 +1,45 @@
+text.usetex: True
+text.latex.preamble: \usepackage{amsmath}\usepackage{amssymb}\usepackage{lmodern}\usepackage{braket}
+
+# Font properties
+font.family: serif
+font.serif: Computer Modern
+font.size: 10
+axes.labelsize: 11
+axes.titlesize: 11
+xtick.labelsize: 9
+ytick.labelsize: 9
+legend.fontsize: 7
+
+# Ticks on all four sides
+xtick.top: True
+ytick.right: True
+
+# figure.figsize : 6.5, 3.5
+# axes.titlesize: medium
+# figure.titlesize: medium
+
+
+legend.frameon: True
+legend.framealpha: 0.8
+legend.loc: best
+
+# Line properties
+lines.linewidth: 1.2
+lines.marker: None
+lines.markersize: 4
+lines.markeredgewidth: 0
+
+axes.linewidth: 0.8
+xtick.direction: in
+ytick.direction: in
+xtick.minor.visible: True
+ytick.minor.visible: True
+
+# Export
+savefig.format: pdf
+savefig.bbox: standard
+figure.dpi: 120
+
+# Color cycle for multiple lines
+axes.prop_cycle: cycler('color', ['340498', '7e03a7', 'b83289', 'de6063', 'f8983d'])
