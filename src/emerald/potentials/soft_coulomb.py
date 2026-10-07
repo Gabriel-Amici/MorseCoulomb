@@ -17,6 +17,12 @@ class SoftCoulomb(Potential):
         self.acronym    = "sC"
         super().__init__(name=self.name, acronym=self.acronym)
 
+    def print(self, short: bool = True, latex: bool = False):
+
+        name = self.acronym if short else self.name
+        param = fr"$\alpha={self.alpha:.2f}$" if latex else f"α = {self.alpha:.2f}" 
+        return f"{name} {param}"
+
     def value(self, position_array):
         r = np.asarray(position_array)
         return -1 / np.sqrt(r**2 + self.alpha**2)

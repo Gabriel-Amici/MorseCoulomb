@@ -10,8 +10,12 @@ import numpy as np
 from scipy.interpolate import interp1d
 
 from ..fields.base import Field
-from ..integrators.base import Integrator
 from ..potentials.base import Potential
+from .integrators import (
+    _DEFAULT_INTEGRATOR,
+    _DEFAULT_REGULARIZED_INTEGRATOR,
+    Integrator,
+)
 
 
 class Dynamics:
@@ -29,6 +33,12 @@ class Dynamics:
         f2 = -self.potential.first_derivative(r) - self.field(time)
         
         return np.stack([f1, f2], axis=-1)
+
+    def propagate(self, states0: np.ndarray, t_span, t_eval: np.ndarray, 
+                  integrator: Integrator = _DEFAULT_INTEGRATOR) -> "Trajectory":
+
+        return Trajectory(*integrator.propagate(self, states0, t_span, t_eval),
+                          self.potential)
 
 class StaticDynamics(Dynamics):
 
@@ -71,6 +81,12 @@ class RegularizedDynamics(Dynamics):
     def from_regularized(self, Q):
         q1, p1 = Q[..., 0], Q[..., 1]
         return np.stack([q1**2, p1/(2*q1)], axis=-1)
+
+    def propagate(self, states0: np.ndarray, t_span, t_eval: np.ndarray, 
+                  integrator: Integrator = _DEFAULT_REGULARIZED_INTEGRATOR) -> "Trajectory":
+
+        return Trajectory(*integrator.propagate(self, states0, t_span, t_eval),
+                          self.potential)
 
 class Trajectory:
     def __init__(self, time: np.ndarray, states: np.ndarray, 

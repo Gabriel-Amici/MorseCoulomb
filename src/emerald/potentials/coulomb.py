@@ -15,6 +15,9 @@ class Coulomb(Potential):
         self.well_depth = np.infty
         super().__init__(name=self.name, acronym=self.acronym)
 
+    def print(self, short: bool = True, latex: bool = False):
+        return "Coulomb"
+
     def value(self, position_array):
         r = np.asarray(position_array)
         return np.where( r > 0, -1 / r, np.infty)

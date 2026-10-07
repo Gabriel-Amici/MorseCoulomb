@@ -13,8 +13,15 @@ class Morse(Potential):
         self.well_depth = D
         self.beta       = beta
         self.name       = "Morse"
-        self.acronym    = "M"
+        self.acronym    = "Morse"
         super().__init__(name=self.name, acronym=self.acronym)
+
+    def print(self, short: bool = True, latex: bool = False):
+
+        name = self.acronym if short else self.name
+        param = fr"$D={self.well_depth:.2f}$, $\beta={self.beta:.2f}$" if latex \
+              else f"D = {self.well_depth:.2f}, β = {self.beta:.2f}" 
+        return f"{name} {param}"
     
     def value(self, position_array):
         r = np.asarray(position_array)
