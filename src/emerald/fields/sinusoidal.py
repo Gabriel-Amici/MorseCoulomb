@@ -12,6 +12,14 @@ class SinusoidField(Field):
     A sinusoidal field of form F(t) = A * sin(ωt + φ), where A is the 
     amplitude, ω is the angular frequency, and φ is the phase.
     """
+
+    _serialized_parameters = {
+        "amplitude": "amplitude",
+        "ang_frequency": "ang_frequency",
+        "phase": "phase",
+    }
+    _format_version = 1
+
     def __init__(self, amplitude: float, ang_frequency: float, phase: float):
         super().__init__()
         self.amplitude     = amplitude
@@ -21,8 +29,8 @@ class SinusoidField(Field):
         self.period        = 1/self.frequency
 
     def value(self, times):
-        return self.amplitude*np.sin( self.ang_frequency*times + self.phase )
+        return self.amplitude * np.sin(self.ang_frequency * times + self.phase)
 
     def first_derivative(self, times):
-        return self.ang_frequency*self.amplitude*\
-            np.cos(self.ang_frequency*times + self.phase)
+        return self.ang_frequency * self.amplitude * \
+            np.cos(self.ang_frequency * times + self.phase)

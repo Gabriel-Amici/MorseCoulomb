@@ -11,37 +11,28 @@ from scipy.optimize import brentq
 
 from ..numerics.maths import AnalyticFunction
 from ..numerics.quadrature import gauss_legendre_quadrature, simpson13
-from ..serialization import SerializationError, resolve, to_jsonable
+from ..serialization import Serializable, SerializationError
 
 
-class Potential(AnalyticFunction):
+class Potential(AnalyticFunction, Serializable):
     """
     Base class for 1D potentials, responsible for calculating the potential 
     and its derivatives, as well as the classical turning points.
     """
 
     _serialized_parameters: dict[str, str] = {}
+    _format_version = 1
 
     def __init__(self, *args, **kwargs):
         self.name    = kwargs.get('name') if 'name' in kwargs else None
         self.acronym = kwargs.get('acronym') if 'acronym' in kwargs else None
         self.symmetric = self._check_symmetry()
 
-    def to_dict(self) -> dict:
-        """Serialise the potential to a JSON-compatible dictionary."""
-        data = {
-            "_type": type(self).__name__,
-            "_format_version": 1,
-        }
-        for parameter, attribute in self._serialized_parameters.items():
-            data[parameter] = to_jsonable(getattr(self, attribute))
-        return data
-
     @classmethod
     def from_dict(cls, data: dict) -> "Potential":
         """Reconstruct a potential from a dictionary produced by ``to_dict``."""
         version = data.get("_format_version")
-        if version != 1:
+        if version != cls._format_version:
             raise SerializationError(
                 f"Unsupported potential format version: {version}."
             )
@@ -49,6 +40,10 @@ class Potential(AnalyticFunction):
         type_name = data.get("_type")
         if type_name is None:
             raise SerializationError("Potential data is missing '_type'.")
+
+        concrete = Serializable.from_dict.__globals__  # keep import style simple
+        # Use the mixin logic via resolve
+        from ..serialization import resolve
 
         concrete = resolve(type_name)
         if not issubclass(concrete, Potential):

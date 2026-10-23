@@ -11,6 +11,7 @@ from scipy.interpolate import interp1d
 
 from ..fields.base import Field
 from ..potentials.base import Potential
+from ..serialization import Serializable, SerializationError, deserialize_object
 from .integrators import (
     _DEFAULT_INTEGRATOR,
     _DEFAULT_REGULARIZED_INTEGRATOR,
@@ -18,7 +19,10 @@ from .integrators import (
 )
 
 
-class Dynamics:
+class Dynamics(Serializable):
+
+    _serialized_parameters = {"potential": "potential", "field": "field"}
+    _format_version = 1
 
     def __init__(self, potential: Potential,
                  field: Field = None):
@@ -34,16 +38,50 @@ class Dynamics:
         
         return np.stack([f1, f2], axis=-1)
 
+    @classmethod
+    def from_dict(cls, data: dict):
+        version = data.get("_format_version")
+        if version != cls._format_version:
+            raise SerializationError(
+                f"Unsupported dynamics format version: {version}."
+            )
+
+        type_name = data.get("_type")
+        if type_name is None:
+            raise SerializationError("Dynamics data is missing '_type'.")
+
+        from ..serialization import resolve
+
+        concrete = resolve(type_name)
+        if not issubclass(concrete, Dynamics):
+            raise SerializationError(
+                f"Serialisation type '{type_name}' is not a Dynamics subclass."
+            )
+
+        parameters = {}
+        for parameter in concrete._serialized_parameters:
+            if parameter not in data:
+                raise SerializationError(
+                    f"Missing parameter '{parameter}' for {type_name}."
+                )
+            parameters[parameter] = deserialize_object(data[parameter])
+
+        if concrete is StaticDynamics:
+            return concrete(parameters["potential"])
+        return concrete(**parameters)
+
     def propagate(self, states0: np.ndarray, t_span, t_eval: np.ndarray, 
                   integrator: Integrator = _DEFAULT_INTEGRATOR) -> "Trajectory":
 
         return Trajectory(*integrator.propagate(self, states0, t_span, t_eval),
                           self.potential)
-
 class StaticDynamics(Dynamics):
 
+    _serialized_parameters = {"potential": "potential"}
+    _format_version = 1
+
     def __init__(self, potential):
-        super().__init__(potential)
+        super().__init__(potential, field=None)
 
     def dstate(self, time: float = 0.0, state: np.ndarray = None):
         r, p = state[..., 0], state[..., 1]
@@ -53,17 +91,24 @@ class StaticDynamics(Dynamics):
         
         return np.stack([f1, f2], axis=-1)
 
+
 class RegularizedDynamics(Dynamics):
     """
     Coulomb dynamics in KS-regularized extended phase space:
     Q = (q1, p1, q2, p2), q1 = sqrt(r), q2 = physical time.
     Integrated w.r.t. a fictitious parameter tau, not physical time.
     """
+
+    _serialized_parameters = {"potential": "potential", "field": "field"}
+    _format_version = 1
     time_index = 2    # which Q-component holds physical time
+
+    def __init__(self, potential: Potential, field: Field = None):
+        super().__init__(potential, field)
 
     def dstate(self, tau, Q):
         q1, p1, q2, p2 = Q[..., 0], Q[..., 1], Q[..., 2], Q[..., 3]
-        F    = self.field.value(q2)
+        F = self.field.value(q2)
         dFdt = self.field.derivative(q2)
 
         f1 = p1
