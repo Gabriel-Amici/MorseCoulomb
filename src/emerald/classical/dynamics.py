@@ -133,13 +133,32 @@ class Trajectory:
         # Θ.shape = (T, N) or (T,)
         return self._angle
 
-    def ionization_probability(self, criterion='energy'):
-
+    def ionization_probabilities(self, criterion='energy', r_max: float = 100.):
+        """
+        Ionization probability as a time series
+        """
         if criterion=='energy':
-            ionized = np.sum(self.energy[-1,...] > 0)
+            if self.states.ndim != 3:
+                ionized = self.energy > 0
+            else:
+                ionized = np.sum(self.energy > 0, axis=1)
+            return ionized/self.N_trajectories
+
+        if criterion=='distance':
+            ionized = np.where((self.energy > 0) & \
+                               (np.abs(self.position) > r_max), 1, 0)
+            if self.states.ndim == 3:
+                ionized = np.sum(ionized, axis=1)
             return ionized/self.N_trajectories
 
         # later: distance criterium
+
+    def ionization_probability(self, criterion='energy'):
+        """
+        Ionization probability as at the end of the time series
+        """
+
+        return self.ionization_probabilities(criterion)[-1]
 
 class PoincareMap(Trajectory):
 
