@@ -76,7 +76,7 @@ class Evolution:
     times : `np.ndarray`, shape (T,)
         Recorded times.
     coeffs : `np.ndarray`, shape (n_states, T) or (n_states, T, K)
-        ``coeffs[n, t]`` is c_n(times[t]). The last axis exists only when K
+        ``coeffs[n, t]`` is cₙ(times[t]). The last axis exists only when K
         wavepackets were propagated together.
     """
     spectrum: Spectrum
@@ -89,7 +89,7 @@ class Evolution:
 
     @property
     def populations(self) -> np.ndarray:
-        """|cₙ(t)|²: probability of finding the system in eigenstate n.
+        """|cₙ(t)|²: probability of finding the system in H0's eigenstate n.
         Same shape as `coeffs`."""
         return np.abs(self.coeffs) ** 2
 
@@ -118,14 +118,14 @@ class Evolution:
 
         * **full matrix**, shape (n_states, n_states):
 
-              ⟨O⟩(t) = Σₙₘ conj(c_n(t)) O[n, m] c_m(t)
+              ⟨O⟩(t) = Σₙₘ conj(cₙ(t)) O[n, m] cₘ(t)
 
           i.e. the quadratic form ``c^dagger O c``. Cost O(n^2) per time.
 
         * **diagonal operator**, 1-D array of shape (n_states,) holding the
           diagonal ``O[n, n]`` (all other entries are zero):
 
-              ⟨O⟩(t) = Σₙ O[n] |c_n(t)|^2
+              ⟨O⟩(t) = Σₙ O[n] |cₙ(t)|²
 
           i.e. a population-weighted average. Cost O(n) per time. Projectors
           and the energy operator H0 (``spectrum.energies``) are of this
@@ -142,13 +142,13 @@ class Evolution:
 
         Examples
         --------
-        >>> x = spec.matrix(lambda x: x)
-        >>> ev.expectation(x)                      # ⟨x⟩(t)
+        >>> R = spec.matrix(lambda r: r)
+        >>> ev.expectation(R)                      # ⟨r⟩(t)
         >>> ev.expectation(spec.energies)          # ⟨H0⟩(t)
         >>> ev.expectation(spec.projector([0]))    # population of the ground state
         """
         op = np.asarray(operator)
-        n = self.spectrum.n_states
+        n  = self.spectrum.n_states
         if op.shape not in ((n,), (n, n)):
             raise ValueError(
                 f"Operator must have shape ({n},) or ({n}, {n}); got {op.shape}."
@@ -255,14 +255,14 @@ class StationaryPropagator:
 
 class SplitOperatorPropagator:
     """
-    Evolution under H(t) = H0 + F(t) * coupling(x) with the second-order
+    Evolution under H(t) = H0 + F(t) * coupling(r) with the second-order
     (Strang) split-operator scheme in the eigenbasis of H0:
 
-        U(t + dt, t) ~ exp(-i H0 dt/2) exp(-i F(t + dt/2) X dt) exp(-i H0 dt/2)
+        U(t + dt, t) ~ exp(-i H0 dt/2) exp(-i F(t + dt/2) Ξ dt) exp(-i H0 dt/2)
 
     * exp(-i H0 dt/2) is diagonal in the eigenbasis (just a phase per state).
-    * X is the matrix of ``coupling(x)`` in the eigenbasis. It is diagonalized
-      once, X = V diag(Ξ) V†, so exp(-i F X dt) = V diag(exp(-i F Ξ dt)) V†
+    * Ξ is the matrix of ``coupling(x)`` in the eigenbasis. It is diagonalized
+      once, Ξ = Q diag(λ) Q†, so exp(-i F Ξ dt) = Q diag(exp(-i F Λ dt)) Q†
       costs two matrix products per step, whatever the value of F.
 
     The error per unit time is O(dt^2). The scheme is exactly unitary.
@@ -275,22 +275,22 @@ class SplitOperatorPropagator:
     field : callable
         ``field(t) -> float``: value of F at time t (scalar in, scalar out).
     coupling : callable, optional
-        Function of position multiplying the field. Defaults to ``x``
+        Function of position multiplying the field. Defaults to ``r``
         (length gauge, dipole coupling). The sign convention lives here: use
-        ``lambda x: -x`` for the opposite one.
+        ``lambda r: -r`` for the opposite one.
     """
 
     def __init__(self, spectrum: Spectrum, field: Callable[[float], float],
-                 coupling: Callable[[np.ndarray], np.ndarray] = lambda x: x):
+                 coupling: Callable[[np.ndarray], np.ndarray] = lambda r: r):
         self.spectrum = spectrum
         self.field = field
 
         # Coupling in the eigenbasis of H0 and its diagonalization (done once)
         self.coupling_matrix = spectrum.matrix(coupling)
-        self._xi, self._V = np.linalg.eigh(self.coupling_matrix)
-        # V is unitary, so its inverse is its conjugate transpose: no need for
+        self._Lamda, self._Q = np.linalg.eigh(self.coupling_matrix)
+        # Q is unitary, so its inverse is its conjugate transpose: no need for
         # np.linalg.inv
-        self._V_dag = self._V.conj().T
+        self._Q_dag = self._Q.conj().T
 
     def step(self, coeffs: np.ndarray, t: float, dt: float) -> np.ndarray:
         """
@@ -309,14 +309,14 @@ class SplitOperatorPropagator:
         # Reshape helper so the per-state factors broadcast over K columns
         shape = (-1,) + (1,) * (coeffs.ndim - 1)
 
-        half = np.exp(-0.5j * self.spectrum.energies * dt).reshape(shape)
-        F = float(self.field(t + 0.5 * dt))
-        kick = np.exp(-1j * F * self._xi * dt).reshape(shape)
+        half  = np.exp(-0.5j * self.spectrum.energies * dt).reshape(shape)
+        bar_F = float(self.field(t + 0.5 * dt))
+        kick  = np.exp(-1j * bar_F * self._Lamda * dt).reshape(shape)
 
         c = half * coeffs                       # half step under H0
-        c = self._V_dag @ c                     # to the eigenbasis of X
+        c = self._Q_dag @ c                     # to the eigenbasis of Ξ
         c = kick * c                            # full step under the coupling
-        c = self._V @ c                         # back to the eigenbasis of H0
+        c = self._Q @ c                         # back to the eigenbasis of H0
         return half * c                         # half step under H0
 
     def propagate(self, coeffs0, times, record_every: int = 1,
