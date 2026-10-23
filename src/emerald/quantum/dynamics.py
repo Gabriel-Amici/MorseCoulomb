@@ -15,6 +15,13 @@ from dataclasses import dataclass, field, replace
 import numpy as np
 from scipy.linalg import eigh
 
+from ..serialization import (
+    SerializationError,
+    array_to_dict,
+    deserialize_object,
+    resolve,
+    to_jsonable,
+)
 from .representations import Representation
 
 
@@ -147,6 +154,8 @@ class Spectrum:
     # rescale an already-normalized spectrum.
     _normalized: bool = field(default=False, repr=False, compare=False)
 
+    _format_version = 1
+
     # ------------------------------------------------------------------
     # Basic inspection
     # ------------------------------------------------------------------
@@ -164,6 +173,57 @@ class Spectrum:
             self.states = normalization * self.states
 
         self._normalized = True
+
+    def to_dict(self) -> dict:
+        data = {
+            "_type": "Spectrum",
+            "_format_version": self._format_version,
+            "representation": self.representation.to_dict(),
+            "energies": array_to_dict(self.energies),
+            "states": array_to_dict(self.states),
+            "constraint": array_to_dict(self.constraint),
+            "threshold": to_jsonable(self.threshold),
+            "_normalized": bool(self._normalized),
+        }
+        return data
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        version = data.get("_format_version")
+        if version != cls._format_version:
+            raise SerializationError(
+                f"Unsupported spectrum format version: {version}."
+            )
+
+        type_name = data.get("_type")
+        if type_name is None:
+            raise SerializationError("Spectrum data is missing '_type'.")
+
+        concrete = resolve(type_name)
+        if concrete is not Spectrum:
+            raise SerializationError(
+                f"Serialisation type '{type_name}' is not Spectrum."
+            )
+
+        representation = deserialize_object(data["representation"])
+        energies = deserialize_object(data["energies"])
+        states = deserialize_object(data["states"])
+        constraint = deserialize_object(data["constraint"])
+        threshold = data.get("threshold", 0.0)
+        normalized = data.get("_normalized", True)
+        if isinstance(threshold, dict) and threshold.get("_type") in ("ndarray", "ndarray_complex"):
+            threshold = float(deserialize_object(threshold))
+        else:
+            threshold = float(threshold)
+
+        return cls(
+            representation=representation,
+            energies=energies,
+            states=states,
+            constraint=constraint,
+            threshold=threshold,
+            _normalized=bool(normalized),
+        )
 
     @property
     def n_states(self) -> int:

@@ -39,6 +39,13 @@ from typing import Protocol
 import numpy as np
 from tqdm import tqdm
 
+from ..serialization import (
+    SerializationError,
+    array_to_dict,
+    deserialize_object,
+    resolve,
+    to_jsonable,
+)
 from .dynamics import Spectrum
 
 
@@ -82,6 +89,41 @@ class Evolution:
     spectrum: Spectrum
     times: np.ndarray
     coeffs: np.ndarray
+
+    _format_version = 1
+
+    def to_dict(self) -> dict:
+        data = {
+            "_type": "Evolution",
+            "_format_version": self._format_version,
+            "spectrum": self.spectrum.to_dict(),
+            "times": array_to_dict(self.times),
+            "coeffs": array_to_dict(self.coeffs),
+        }
+        return data
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        version = data.get("_format_version")
+        if version != cls._format_version:
+            raise SerializationError(
+                f"Unsupported evolution format version: {version}."
+            )
+
+        type_name = data.get("_type")
+        if type_name is None:
+            raise SerializationError("Evolution data is missing '_type'.")
+
+        concrete = resolve(type_name)
+        if concrete is not Evolution:
+            raise SerializationError(
+                f"Serialisation type '{type_name}' is not Evolution."
+            )
+
+        spectrum = deserialize_object(data["spectrum"])
+        times = deserialize_object(data["times"])
+        coeffs = deserialize_object(data["coeffs"])
+        return cls(spectrum=spectrum, times=times, coeffs=coeffs)
 
     # ------------------------------------------------------------------
     # Populations and norm

@@ -6,6 +6,7 @@ from scipy.interpolate import BSpline, interp1d
 from scipy.linalg import toeplitz
 
 from emerald.numerics.quadrature import gauss_legendre_quadrature
+from emerald.serialization import Serializable
 
 
 class Representation(Protocol):
@@ -20,7 +21,10 @@ class Representation(Protocol):
     def constrained_basis(self, left=None, right=None) -> np.ndarray: ...
 
 
-class FourierGridBasis(Representation):
+class FourierGridBasis(Representation, Serializable):
+
+    _serialized_parameters = {"position_grid": "position_grid"}
+    _format_version = 1
 
     def __init__(self, position_grid: np.ndarray):
         position_grid = np.asarray(position_grid)
@@ -135,12 +139,15 @@ class FourierGridBasis(Representation):
         return np.eye(self.number_functions)
 
 
-class BSplineBasis(Representation):
+class BSplineBasis(Representation, Serializable):
 
     '''
     Basic class for generating a set of Bsplines given a particular breakpoint
     sequence. 
     '''
+
+    _serialized_parameters = {"breakpoint_sequence": "breakpoint_sequence", "order": "order"}
+    _format_version = 1
 
     def __init__(self, breakpoint_sequence: np.ndarray, order: int):
         '''

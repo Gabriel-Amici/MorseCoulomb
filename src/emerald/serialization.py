@@ -15,18 +15,38 @@ class SerializationError(ValueError):
 
 
 _REGISTRY: dict[str, tuple[str, str]] = {
-    "Coulomb": ("emerald.potentials.coulomb", "Coulomb"),
-    "Morse": ("emerald.potentials.morse", "Morse"),
-    "MorseSoftCoulomb": ("emerald.potentials.msc", "MorseSoftCoulomb"),
-    "SoftCoulomb": ("emerald.potentials.soft_coulomb", "SoftCoulomb"),
-    "InterpolatedField": ("emerald.fields.base", "InterpolatedField"),
-    "SinusoidField": ("emerald.fields.sinusoidal", "SinusoidField"),
-    "Dynamics": ("emerald.classical.dynamics", "Dynamics"),
-    "StaticDynamics": ("emerald.classical.dynamics", "StaticDynamics"),
-    "RegularizedDynamics": ("emerald.classical.dynamics", "RegularizedDynamics"),
-    "Trajectory": ("emerald.classical.dynamics", "Trajectory"),
-    "PoincareMap": ("emerald.classical.dynamics", "PoincareMap"),
-    "ClassicalSystem": ("emerald.classical.dynamics", "ClassicalSystem"),
+    "Coulomb"             : ("emerald.potentials.coulomb", 
+                             "Coulomb"),
+    "Morse"               : ("emerald.potentials.morse", 
+                             "Morse"),
+    "MorseSoftCoulomb"    : ("emerald.potentials.msc", 
+                             "MorseSoftCoulomb"),
+    "SoftCoulomb"         : ("emerald.potentials.soft_coulomb", 
+                             "SoftCoulomb"),
+    "InterpolatedField"   : ("emerald.fields.base", 
+                             "InterpolatedField"),
+    "SinusoidField"       : ("emerald.fields.sinusoidal", 
+                             "SinusoidField"),
+    "Dynamics"            : ("emerald.classical.dynamics", 
+                             "Dynamics"),
+    "StaticDynamics"      : ("emerald.classical.dynamics", 
+                             "StaticDynamics"),
+    "RegularizedDynamics" : ("emerald.classical.dynamics", 
+                             "RegularizedDynamics"),
+    "Trajectory"          : ("emerald.classical.dynamics", 
+                             "Trajectory"),
+    "PoincareMap"         : ("emerald.classical.dynamics", 
+                             "PoincareMap"),
+    "ClassicalSystem"     : ("emerald.classical.dynamics", 
+                             "ClassicalSystem"),
+    "FourierGridBasis"    : ("emerald.quantum.representations", 
+                             "FourierGridBasis"),
+    "BSplineBasis"        : ("emerald.quantum.representations", 
+                             "BSplineBasis"),
+    "Spectrum"            : ("emerald.quantum.dynamics", 
+                             "Spectrum"),
+    "Evolution"           : ("emerald.quantum.evolution", 
+                             "Evolution"),
 }
 
 
@@ -82,6 +102,14 @@ def to_jsonable(value):
     if isinstance(value, np.generic):
         return value.item()
     if isinstance(value, np.ndarray):
+        if np.iscomplexobj(value):
+            return {
+                "_type": "ndarray_complex",
+                "dtype": str(value.real.dtype),
+                "shape": value.shape,
+                "real": value.real.ravel().tolist(),
+                "imag": value.imag.ravel().tolist(),
+            }
         return value.tolist()
     if isinstance(value, dict):
         return {k: to_jsonable(v) for k, v in value.items()}
@@ -92,6 +120,14 @@ def to_jsonable(value):
 
 def array_to_dict(array) -> dict:
     array = np.asarray(array)
+    if np.iscomplexobj(array):
+        return {
+            "_type": "ndarray_complex",
+            "dtype": str(array.real.dtype),
+            "shape": array.shape,
+            "real": array.real.ravel().tolist(),
+            "imag": array.imag.ravel().tolist(),
+        }
     return {
         "_type": "ndarray",
         "dtype": str(array.dtype),
@@ -101,6 +137,9 @@ def array_to_dict(array) -> dict:
 
 
 def array_from_dict(data) -> np.ndarray:
+    if data.get("_type") == "ndarray_complex":
+        arr = np.array(data["real"], dtype=data["dtype"]) + 1j * np.array(data["imag"], dtype=data["dtype"])
+        return arr.reshape(data["shape"])
     arr = np.array(data["data"], dtype=data["dtype"])
     return arr.reshape(data["shape"])
 
@@ -117,7 +156,7 @@ def deserialize_object(data):
     if data is None:
         return None
     if isinstance(data, dict):
-        if data.get("_type") == "ndarray":
+        if data.get("_type") in ("ndarray", "ndarray_complex"):
             return array_from_dict(data)
         if "_type" in data and "_format_version" in data:
             concrete = resolve(data["_type"])
@@ -126,6 +165,9 @@ def deserialize_object(data):
             raise SerializationError(
                 f"'{data['_type']}' has no from_dict method."
             )
+    if isinstance(data, (list, tuple)) and len(data) > 0:
+        if isinstance(data[0], (list, tuple, np.ndarray)):
+            return np.array(data)
     return data
 
 
@@ -153,7 +195,7 @@ class Serializable:
     @classmethod
     def from_dict(cls, data: dict):
         version = data.get("_format_version")
-        if version != cls._format_version:
+        if version != getattr(cls, "_format_version", 1):
             raise SerializationError(
                 f"Unsupported format version: {version}."
             )
@@ -169,7 +211,7 @@ class Serializable:
             )
 
         parameters = {}
-        for parameter in concrete._serialized_parameters:
+        for parameter in getattr(concrete, "_serialized_parameters", {}):
             if parameter not in data:
                 raise SerializationError(
                     f"Missing parameter '{parameter}' for {type_name}."
