@@ -12,7 +12,7 @@ class Coulomb(Potential):
     def __init__(self):
         self.name       = "Coulomb"
         self.acronym    = "C"
-        self.well_depth = np.infty
+        self.well_depth = np.inf
         super().__init__(name=self.name, acronym=self.acronym)
 
     def print(self, short: bool = True, latex: bool = False):
@@ -20,15 +20,15 @@ class Coulomb(Potential):
 
     def value(self, position_array):
         r = np.asarray(position_array)
-        return np.where( r > 0, -1 / r, np.infty)
+        return np.where( r > 0, -1 / r, np.inf)
 
     def first_derivative(self, position_array):
         r = np.asarray(position_array)
-        return np.where(r > 0, 1/r**2, np.infty)
+        return np.where(r > 0, 1/r**2, np.inf)
 
     def second_derivative(self, position_array):
         r = np.asarray(position_array)
-        return np.where(r > 0, -2/r**3, np.infty)
+        return np.where(r > 0, -2/r**3, np.inf)
 
     def turning_points(self, energy):
 

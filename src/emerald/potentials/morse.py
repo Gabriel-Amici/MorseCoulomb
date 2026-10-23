@@ -51,8 +51,9 @@ class Morse(Potential):
 
         delta = np.sqrt(energy/self.well_depth + 1)
         
-        rm = -(1/self.beta)*np.log(1 + delta)
-        rM = -(1/self.beta)*np.log(1 - delta)
+        with np.errstate(invalid='ignore'):           # log(1-delta) is nan on purpose for E>0
+            rm = -(1/self.beta)*np.log(1 + delta)
+            rM = -(1/self.beta)*np.log(1 - delta)
 
         rm = np.where(energy < -self.well_depth, np.nan, rm)
         rM = np.where((energy >= 0) | (energy < -self.well_depth), np.nan, rM)
