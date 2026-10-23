@@ -11,6 +11,7 @@ from scipy.optimize import brentq
 
 from ..numerics.maths import AnalyticFunction
 from ..numerics.quadrature import gauss_legendre_quadrature, simpson13
+from ..serialization import SerializationError, resolve, to_jsonable
 
 
 class Potential(AnalyticFunction):
@@ -19,10 +20,51 @@ class Potential(AnalyticFunction):
     and its derivatives, as well as the classical turning points.
     """
 
+    _serialized_parameters: dict[str, str] = {}
+
     def __init__(self, *args, **kwargs):
         self.name    = kwargs.get('name') if 'name' in kwargs else None
         self.acronym = kwargs.get('acronym') if 'acronym' in kwargs else None
         self.symmetric = self._check_symmetry()
+
+    def to_dict(self) -> dict:
+        """Serialise the potential to a JSON-compatible dictionary."""
+        data = {
+            "_type": type(self).__name__,
+            "_format_version": 1,
+        }
+        for parameter, attribute in self._serialized_parameters.items():
+            data[parameter] = to_jsonable(getattr(self, attribute))
+        return data
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Potential":
+        """Reconstruct a potential from a dictionary produced by ``to_dict``."""
+        version = data.get("_format_version")
+        if version != 1:
+            raise SerializationError(
+                f"Unsupported potential format version: {version}."
+            )
+
+        type_name = data.get("_type")
+        if type_name is None:
+            raise SerializationError("Potential data is missing '_type'.")
+
+        concrete = resolve(type_name)
+        if not issubclass(concrete, Potential):
+            raise SerializationError(
+                f"Serialisation type '{type_name}' is not a Potential subclass."
+            )
+
+        parameters = {}
+        for parameter in concrete._serialized_parameters:
+            if parameter not in data:
+                raise SerializationError(
+                    f"Missing parameter '{parameter}' for {type_name}."
+                )
+            parameters[parameter] = data[parameter]
+
+        return concrete(**parameters)
 
     def __call__(self, r):
         return self.value(r)

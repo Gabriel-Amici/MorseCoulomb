@@ -9,7 +9,9 @@ class MorseSoftCoulomb(Potential):
     barrier at the origin. The parameter 'alpha' controls the well depth and
     barrier hardness.
     """
-    
+
+    _serialized_parameters = {"alpha": "alpha"}
+
     def __init__(self, alpha: float):
         self.alpha      = alpha
         self.well_depth = 1 / alpha

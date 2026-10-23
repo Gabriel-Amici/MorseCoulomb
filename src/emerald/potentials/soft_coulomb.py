@@ -10,6 +10,8 @@ class SoftCoulomb(Potential):
     potential well has finite depth 1/alpha.
     """
 
+    _serialized_parameters = {"alpha": "alpha"}
+
     def __init__(self, alpha: float):
         self.alpha      = alpha
         self.well_depth = 1 / alpha

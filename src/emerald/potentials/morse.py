@@ -8,7 +8,9 @@ class Morse(Potential):
     Morse potential (M) is a 1D potential with a repulsive barrier. 
     The parameters 'D' and 'beta' control the well depth and barrier hardness.
     """
-    
+
+    _serialized_parameters = {"D": "well_depth", "beta": "beta"}
+
     def __init__(self, D: float, beta: float):
         self.well_depth = D
         self.beta       = beta
