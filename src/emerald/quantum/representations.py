@@ -236,8 +236,44 @@ class BSplineBasis(Representation):
 
     def kinetic_matrix(self, extra_integration_points: int = 0):
         '''
-        Compute the kinetic matrix for the B-spline basis functions.
-        -½∫ Bᵢ(x)B''ₖ(x) dx
+        Compute the kinetic matrix for the B-spline basis functions in the
+        weak (Galerkin) form::
+
+            T_ij = +1/2 ∫ Bᵢ'(x) Bⱼ'(x) dx
+
+        The algebraically equivalent strong form, -1/2 ∫ Bᵢ Bⱼ'' dx, must NOT
+        be assembled directly, because integration by parts only relates the
+        two up to a boundary term::
+
+            -1/2 ∫ Bᵢ Bⱼ'' dx = +1/2 ∫ Bᵢ' Bⱼ' dx - 1/2 [Bᵢ Bⱼ']_∂
+
+        The bracket vanishes for every pair whose common support does not
+        touch a clamped domain endpoint, but `multiplicity_from_breakpoints`
+        hard-codes a *clamped* knot vector (multiplicity = order at both
+        ends), so the outermost basis functions are interpolatory
+        (B₀(0) = B_{N-1}(R) = 1) and on the first/last knot span the basis
+        reduces to the Bernstein polynomials, whose derivatives do not
+        vanish there: B₁'(0) = 8/h_first and B_{N-1}'(R) = 8/h_last. The
+        surviving boundary terms contaminate exactly four entries::
+
+            T[0,0]        -= 4 / h_first
+            T[0,1]=T[1,0] += 4 / h_first
+            T[N-1,N-1]    -= 4 / h_last
+
+        Two consequences of assembling the strong form instead:
+
+        * the kinetic matrix becomes *indefinite* (the kinetic energy
+          operator must be positive semidefinite);
+        * the -4/h_last corner entry acts as an attractive surface well on
+          the outermost spline.  If that endpoint is left unconstrained
+          (bc = None / 'neumann') it binds a spurious boundary state whose
+          eigenvalue is inserted into the spectrum, shifting every level
+          above it by one.  A 'dirichlet' condition at that end masks the
+          defect only because `constrained_basis` deletes those rows/columns.
+
+        Quadrature: the integrand has degree 2(k-2) = 2k-4 (k = order), and
+        Gauss-Legendre with n = k-1 points is exact through degree 2n-1 =
+        2k-3, so the integral is computed exactly.
         '''
         # k-1 points are enough to compute exactly a 2k - 3 degree polynomial
         integration_points = self.degree + extra_integration_points
@@ -253,12 +289,12 @@ class BSplineBasis(Representation):
             a = self.breakpoint_sequence[m]
             b = self.breakpoint_sequence[m+1]
 
-            # Iterate over the basis functions that are non-zero in the 
+            # Iterate over the k basis functions that are non-zero in the 
             # current interval
             for i in range(m, m+self.order):
                 for j in range(i, m+self.order):
                     integrand = lambda x: \
-                        self.basis_functions[i](x)*self.basis_functions[j](x, nu=2)
+                        self.basis_functions[i](x, nu=1)*self.basis_functions[j](x, nu=1)
                     # Use Gauss-Legendre quadrature to compute the integral 
                     # over [a, b] using k-1 points to integrate the polynomial 
                     # of degree 2k-4 exactly
@@ -269,7 +305,7 @@ class BSplineBasis(Representation):
         # Symmetrize the kinetic matrix
         K = kinetic + kinetic.T - np.diag(kinetic.diagonal())
         
-        return -(1/2)*K
+        return 0.5 * K
     
     def braket(self, func: callable, extra_integration_points: int = 20):
         '''
