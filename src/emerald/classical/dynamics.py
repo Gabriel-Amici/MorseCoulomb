@@ -174,12 +174,15 @@ class ClassicalSystem:
         self.potential = dynamics.potential
         self.field     = dynamics.field
 
-    def propagate(self, integrator: Integrator, t_span, t_eval: np.ndarray) -> "Trajectory":
+    def propagate(self, t_eval: np.ndarray, t_span: tuple | None = None, integrator: Integrator = _DEFAULT_INTEGRATOR) -> "Trajectory":
+
+        if t_span is None:
+            t_span = (t_eval[0], t_eval[-1])
 
         return Trajectory(*integrator.propagate(self.dynamics, self.states0, t_span, t_eval),
                           self.potential)
 
-    def poincare_map(self, integrator: Integrator, Nt: int = 100) -> "PoincareMap":
+    def poincare_map(self, NT: int = 100, integrator: Integrator = _DEFAULT_INTEGRATOR) -> "PoincareMap":
         """
         Compute the Poicaré Map of the system.
 
@@ -187,7 +190,7 @@ class ClassicalSystem:
         ----------
         integrator: Integrator
             Integrator to be used.
-        Nt: int
+        NT: int
             How many field periods the particles will be propagated for.
         """
         if self.field is None:
@@ -195,9 +198,9 @@ class ClassicalSystem:
         t_eval = np.linspace(0, Nt*self.field.period, Nt)
         t_span = (t_eval[0], t_eval[-1])
 
-        traj = self.propagate(integrator, t_span, t_eval)
+        traj = self.propagate(t_eval, t_span, integrator)
 
-        return PoincareMap(np.arange(Nt), traj.states, self.potential)
+        return PoincareMap(np.arange(NT), traj.states, self.potential)
 
     # Factory methods
     @classmethod
