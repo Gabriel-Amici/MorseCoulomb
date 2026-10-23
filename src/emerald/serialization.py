@@ -24,6 +24,9 @@ _REGISTRY: dict[str, tuple[str, str]] = {
     "Dynamics": ("emerald.classical.dynamics", "Dynamics"),
     "StaticDynamics": ("emerald.classical.dynamics", "StaticDynamics"),
     "RegularizedDynamics": ("emerald.classical.dynamics", "RegularizedDynamics"),
+    "Trajectory": ("emerald.classical.dynamics", "Trajectory"),
+    "PoincareMap": ("emerald.classical.dynamics", "PoincareMap"),
+    "ClassicalSystem": ("emerald.classical.dynamics", "ClassicalSystem"),
 }
 
 

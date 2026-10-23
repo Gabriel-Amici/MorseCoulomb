@@ -6,12 +6,21 @@ Base module for implementing Dynamics objects and Trajectory objects.
  - Trajectory: a class to store the results of a dynamics propagation
 """
 
+import time
+
 import numpy as np
 from scipy.interpolate import interp1d
 
 from ..fields.base import Field
 from ..potentials.base import Potential
-from ..serialization import Serializable, SerializationError, deserialize_object
+from ..serialization import (
+    Serializable,
+    SerializationError,
+    array_to_dict,
+    deserialize_object,
+    resolve,
+    to_jsonable,
+)
 from .integrators import (
     _DEFAULT_INTEGRATOR,
     _DEFAULT_REGULARIZED_INTEGRATOR,
@@ -50,8 +59,6 @@ class Dynamics(Serializable):
         if type_name is None:
             raise SerializationError("Dynamics data is missing '_type'.")
 
-        from ..serialization import resolve
-
         concrete = resolve(type_name)
         if not issubclass(concrete, Dynamics):
             raise SerializationError(
@@ -72,9 +79,20 @@ class Dynamics(Serializable):
 
     def propagate(self, states0: np.ndarray, t_span, t_eval: np.ndarray, 
                   integrator: Integrator = _DEFAULT_INTEGRATOR) -> "Trajectory":
+        t_start = time.perf_counter()
+        time_vals, states = integrator.propagate(self, states0, t_span, t_eval)
+        generation_time_s = time.perf_counter() - t_start
+        metadata = {
+            "generation_time_s": generation_time_s,
+            "t_span": list(t_span) if hasattr(t_span, "__iter__") and not isinstance(t_span, str) else t_span,
+        }
+        if t_eval is not None:
+            try:
+                metadata["t_eval_len"] = int(len(t_eval))
+            except Exception:
+                pass
+        return Trajectory(time_vals, states, dynamics=self, metadata=metadata)
 
-        return Trajectory(*integrator.propagate(self, states0, t_span, t_eval),
-                          self.potential)
 class StaticDynamics(Dynamics):
 
     _serialized_parameters = {"potential": "potential"}
@@ -129,23 +147,87 @@ class RegularizedDynamics(Dynamics):
 
     def propagate(self, states0: np.ndarray, t_span, t_eval: np.ndarray, 
                   integrator: Integrator = _DEFAULT_REGULARIZED_INTEGRATOR) -> "Trajectory":
+        t_start = time.perf_counter()
+        time_vals, states = integrator.propagate(self, states0, t_span, t_eval)
+        generation_time_s = time.perf_counter() - t_start
+        metadata = {
+            "generation_time_s": generation_time_s,
+            "t_span": list(t_span) if hasattr(t_span, "__iter__") and not isinstance(t_span, str) else t_span,
+        }
+        if t_eval is not None:
+            try:
+                metadata["t_eval_len"] = int(len(t_eval))
+            except Exception:
+                pass
+        return Trajectory(time_vals, states, dynamics=self, metadata=metadata)
 
-        return Trajectory(*integrator.propagate(self, states0, t_span, t_eval),
-                          self.potential)
+class Trajectory(Serializable):
 
-class Trajectory:
-    def __init__(self, time: np.ndarray, states: np.ndarray, 
-                 potential: Potential):
-        self.time, self.states, self.potential = time, states, potential
+    _format_version = 1
+    _serialized_parameters = {}
 
-        self._angle  = None
+    def __init__(self, time: np.ndarray, states: np.ndarray,
+                 dynamics: Dynamics = None, metadata: dict | None = None):
+        self.time = np.asarray(time)
+        self.states = np.asarray(states)
+        if dynamics is None:
+            raise ValueError("Trajectory requires a dynamics object.")
+        self.dynamics = dynamics
+        self.potential = dynamics.potential
+        self.field = getattr(dynamics, "field", None)
+        self.metadata = dict(metadata) if metadata else {}
+
+        self._angle = None
         self._action = None
-        self.N_trajectories = 1 if states.ndim != 3 else states.shape[1]
-        self.T_times = states.shape[0]
+        self.N_trajectories = 1 if self.states.ndim != 3 else self.states.shape[1]
+        self.T_times = self.states.shape[0]
+
+    def to_dict(self) -> dict:
+        data = {
+            "_type": type(self).__name__,
+            "_format_version": self._format_version,
+            "time": array_to_dict(self.time),
+            "states": array_to_dict(self.states),
+            "dynamics": self.dynamics.to_dict() if self.dynamics is not None else None,
+            "metadata": to_jsonable(self.metadata),
+        }
+        return data
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        version = data.get("_format_version")
+        if version != cls._format_version:
+            raise SerializationError(
+                f"Unsupported trajectory format version: {version}."
+            )
+
+        type_name = data.get("_type")
+        if type_name is None:
+            raise SerializationError("Trajectory data is missing '_type'.")
+
+        concrete = resolve(type_name)
+        if not issubclass(concrete, Trajectory):
+            raise SerializationError(
+                f"Serialisation type '{type_name}' is not a Trajectory subclass."
+            )
+
+        time_vals = deserialize_object(data["time"])
+        states = deserialize_object(data["states"])
+        dynamics_data = data.get("dynamics")
+        if dynamics_data is None:
+            raise SerializationError("Trajectory data is missing 'dynamics'.")
+        dynamics = deserialize_object(dynamics_data)
+        metadata = data.get("metadata") or {}
+        if isinstance(metadata, dict):
+            pass
+        else:
+            metadata = {}
+
+        return concrete(time_vals, states, dynamics=dynamics, metadata=metadata)
 
     def for_particle(self, i) -> "Trajectory":
         if i < self.N_trajectories > 1:
-            return Trajectory(self.time, self.states[:, i], self.potential)
+            return Trajectory(self.time, self.states[:, i], dynamics=self.dynamics)
 
     @property
     def position(self):
@@ -207,25 +289,68 @@ class Trajectory:
 
 class PoincareMap(Trajectory):
 
-    def __init__(self, time, states, potential):
-        super().__init__(time, states, potential)
+    def __init__(self, time, states, dynamics: Dynamics = None, metadata: dict | None = None):
+        super().__init__(time, states, dynamics=dynamics, metadata=metadata)
 
-class ClassicalSystem:
+class ClassicalSystem(Serializable):
+
+    _serialized_parameters = {"dynamics": "dynamics", "states0": "states0"}
+    _format_version = 1
 
     def __init__(self, dynamics: Dynamics, states0: np.ndarray):
 
         self.dynamics  = dynamics
-        self.states0   = states0
+        self.states0   = np.asarray(states0)
         self.potential = dynamics.potential
-        self.field     = dynamics.field
+        self.field     = getattr(dynamics, "field", None)
+
+    def to_dict(self) -> dict:
+        data = {
+            "_type": type(self).__name__,
+            "_format_version": self._format_version,
+            "dynamics": self.dynamics.to_dict(),
+            "states0": array_to_dict(self.states0),
+        }
+        return data
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        version = data.get("_format_version")
+        if version != cls._format_version:
+            raise SerializationError(
+                f"Unsupported ClassicalSystem format version: {version}."
+            )
+
+        type_name = data.get("_type")
+        if type_name is None:
+            raise SerializationError("ClassicalSystem data is missing '_type'.")
+
+        concrete = resolve(type_name)
+        if not issubclass(concrete, ClassicalSystem):
+            raise SerializationError(
+                f"Serialisation type '{type_name}' is not a ClassicalSystem subclass."
+            )
+
+        dynamics = deserialize_object(data["dynamics"])
+        states0 = deserialize_object(data["states0"])
+        return concrete(dynamics, states0)
 
     def propagate(self, t_eval: np.ndarray, t_span: tuple | None = None, integrator: Integrator = _DEFAULT_INTEGRATOR) -> "Trajectory":
 
         if t_span is None:
             t_span = (t_eval[0], t_eval[-1])
-
-        return Trajectory(*integrator.propagate(self.dynamics, self.states0, t_span, t_eval),
-                          self.potential)
+        t_start = time.perf_counter()
+        time_vals, states = integrator.propagate(self.dynamics, self.states0, t_span, t_eval)
+        generation_time_s = time.perf_counter() - t_start
+        metadata = {
+            "generation_time_s": generation_time_s,
+            "t_span": list(t_span) if hasattr(t_span, "__iter__") and not isinstance(t_span, str) else t_span,
+        }
+        try:
+            metadata["t_eval_len"] = int(len(t_eval))
+        except Exception:
+            pass
+        return Trajectory(time_vals, states, dynamics=self.dynamics, metadata=metadata)
 
     def poincare_map(self, NT: int = 100, integrator: Integrator = _DEFAULT_INTEGRATOR) -> "PoincareMap":
         """
@@ -240,12 +365,20 @@ class ClassicalSystem:
         """
         if self.field is None:
             raise AssertionError("Field must be defined")
-        t_eval = np.arange(NT)*self.field.period
+        t_start = time.perf_counter()
+        t_eval = np.arange(NT) * self.field.period
         t_span = (t_eval[0], t_eval[-1])
 
         traj = self.propagate(t_eval, t_span, integrator)
-
-        return PoincareMap(np.arange(NT), traj.states, self.potential)
+        generation_time_s = time.perf_counter() - t_start
+        traj.metadata["type"] = "poincare"
+        traj.metadata["NT"] = int(NT)
+        try:
+            traj.metadata["field_period"] = float(self.field.period)
+        except Exception:
+            pass
+        traj.metadata["generation_time_s_total"] = generation_time_s
+        return PoincareMap(traj.time, traj.states, dynamics=traj.dynamics, metadata=traj.metadata)
 
     # Factory methods
     @classmethod
