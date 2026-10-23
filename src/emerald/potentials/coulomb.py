@@ -78,15 +78,17 @@ class Coulomb(Potential):
 
         K = 4
         p2 = -E
-    
-        q1M = np.sqrt( K/(4*p2) )
-        q1m = -q1M
 
-        # Bound states only exist within the well: -1/alpha < E < 0
+        # Bound states only exist within the well: E < 0 and above bottom
         invalid = (E >= 0) | (E < -self.well_depth)
-        
-        q1m = np.where(invalid, np.nan, q1m)
-        q1M = np.where(invalid, np.nan, q1M)
+        q1M = np.empty_like(E, dtype=float)
+        q1m = np.empty_like(E, dtype=float)
+        with np.errstate(invalid='ignore'):
+            valid_mask = ~invalid & (p2 > 0)
+            q1M[valid_mask] = np.sqrt(K / (4 * p2[valid_mask]))
+            q1M[~valid_mask] = np.nan
+            q1m[valid_mask] = -q1M[valid_mask]
+            q1m[~valid_mask] = np.nan
 
         return np.stack((q1m, q1M), axis=-1).reshape(shape + (2,))
 
@@ -113,58 +115,84 @@ class Coulomb(Potential):
                      q1_1: float | None = None, q1_2: float | None = None):
 
         q1m, q1M = self.extended_turning_points(E)
-    
+
         if not np.isnan(q1m) and not np.isnan(q1M):
-            # bound: both edges are real turning points -> full closed orbit
-            q1 = self._grid(q1m, q1M, N, dr)
-            p1 = self.extended_momentum(E, q1)
-            # q1[0], p1[-1] = 0.0, 0.0                      # clamp: exact zero at true turning points
-            q1_out = np.concatenate([q1, q1[::-1]])
-            p1_out = np.concatenate([p1, -p1[::-1]])
-    
-        elif not np.isnan(q1m) :                             # unbound above: only rm is real
+            # bound: only the physical branch q1 >= 0 matters for r>=0; output as single period
+            q1_pos = self._grid(0.0, q1M, N, dr)
+            p1_pos = self.extended_momentum(E, q1_pos)
+            # single period: (0,+inf) -> (rM,0) -> (0,-inf); the ±inf seam
+            # ends sit at the array edges so nothing is drawn across r=0
+            q1_out = np.concatenate([q1_pos, q1_pos[:-1][::-1]])
+            p1_out = np.concatenate([p1_pos, -p1_pos[:-1][::-1]])
+            return (q1_out, p1_out)
+
+        elif not np.isnan(q1m):                             # unbound above: only rm is real
             if q1_2 is None:
                 raise ValueError("Unbound above at this energy — supply q1_2.")
             q1 = self._grid(q1m, q1_2, N, dr)
             p1 = self.extended_momentum(E, q1)
-            # p[0] = 0.0
-            # incoming branch first: puts the seam (rm, real) in the middle,
-            # leaves the artificial edge r2 at the two loose ends
             q1_out = np.concatenate([q1[::-1], q1])
             p1_out = np.concatenate([-p1[::-1], p1])
-    
+            return (q1_out, p1_out)
+
         elif not np.isnan(q1M):                             # unbound below: only rM is real
             if q1_1 is None:
                 raise ValueError("Unbound below at this energy — supply q1_1.")
             q1 = self._grid(q1_1, q1M, N, dr)
             p1 = self.extended_momentum(E, q1)
-            # p[-1] = 0.0
             q1_out = np.concatenate([q1, q1[::-1]])
             p1_out = np.concatenate([p1, -p1[::-1]])
-    
+            return (q1_out, p1_out)
+
         else:                                             # fully unbound: no fold at all
             if q1_1 is None or q1_2 is None:
-                raise ValueError("No turning points at this energy — supply q1_1 and q1_2.")
+                raise ValueError("No turning points at this energy — supply r1 and r2.")
+            # Treat as scattering through r=0 if q1_1==0; otherwise return single branch as before? 
+            # Prefer the same (0,±∞)-(rM-like R,0)-(0,±∞) broken form when starting at 0
+            if q1_1 == 0.0 or (np.isfinite(q1_1) and abs(q1_1) < 1e-18):
+                q1_pos = self._grid(0.0, q1_2, N, dr)
+                p1_pos = self.extended_momentum(E, q1_pos)
+                q1_out = np.concatenate([q1_pos, [np.nan], q1_pos[:-1][::-1]])
+                p1_out = np.concatenate([p1_pos, [np.nan], -p1_pos[:-1][::-1]])
+                return (q1_out, p1_out)
+            if q1_2 == 0.0 or (np.isfinite(q1_2) and abs(q1_2) < 1e-18):
+                q1_pos = self._grid(0.0, q1_1, N, dr)
+                p1_pos = self.extended_momentum(E, q1_pos)
+                q1_out = np.concatenate([q1_pos, [np.nan], q1_pos[:-1][::-1]])
+                p1_out = np.concatenate([p1_pos, [np.nan], -p1_pos[:-1][::-1]])
+                return (q1_out, p1_out)
             q1_out = self._grid(q1_1, q1_2, N, dr)
             p1_out = self.extended_momentum(E, q1_out)
-
-        return (q1_out, p1_out)
+            return (q1_out, p1_out)
 
     def phase_space(self, E: float, N: int | None = None, dr: float | None = None,
                      r1: float | None = None, r2: float | None = None):
 
         q1_1 = np.sqrt(r1) if r1 is not None else None
         q1_2 = np.sqrt(r2) if r2 is not None else None
-        dq = dr**2
-        N = int(N**2)
-        
-        extended_ps = self.extended_phase_space(E, N, dq, q1_1, q1_2)
+
+        N_use = int(N) if N is not None else None
+        dq = None
+        if dr is not None:
+            # dr is a radial step; on the q1 grid dr = 2 q1 dq1, so scale by
+            # the largest |q1| reached to keep the radial step <= dr everywhere
+            _, q1M = self.extended_turning_points(E)
+            q_exts = [q for q in (q1M, q1_1, q1_2) if q is not None and np.isfinite(q)]
+            if q_exts:
+                q_max = max(q_exts)
+                dq = dr / (2.0 * q_max) if q_max > 0 else dr
+            else:
+                dq = dr  # no finite extent yet; extended_phase_space will raise
+
+        extended_ps = self.extended_phase_space(E, N_use, dq, q1_1, q1_2)
 
         q1, p1 = extended_ps
 
-
-        r_out = q1**2
-        p_out = np.where(q1 != 0, p1/(2*q1), np.infty)
+        r_out = q1 ** 2
+        with np.errstate(divide='ignore', invalid='ignore'):
+            p_ratio = p1 / (2 * q1)
+        # seam q1 == 0: p -> ±∞ following the sign of p1 (upper/lower branch)
+        p_out = np.where(q1 != 0, p_ratio, np.copysign(np.inf, p1))
 
         return (r_out, p_out)
 

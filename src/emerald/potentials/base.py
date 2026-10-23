@@ -267,10 +267,9 @@ class Potential(AnalyticFunction):
             r = self._grid(rm, r2, N, dr)
             p = self.momentum(E, r)
             p[0] = 0.0
-            # incoming branch first: puts the seam (rm, real) in the middle,
-            # leaves the artificial edge r2 at the two loose ends
+            # start at r2, sweep in to rm, then the p-mirrored return branch
             r_out = np.concatenate([r[::-1], r])
-            p_out = np.concatenate([-p[::-1], p])
+            p_out = np.concatenate([p[::-1], -p])
     
         elif not np.isnan(rM):                             # unbound below: only rM is real
             if r1 is None:
@@ -284,8 +283,10 @@ class Potential(AnalyticFunction):
         else:                                             # fully unbound: no fold at all
             if r1 is None or r2 is None:
                 raise ValueError("No turning points at this energy — supply r1 and r2.")
-            r_out = self._grid(r1, r2, N, dr)
-            p_out = self.momentum(E, r_out)
+            r = self._grid(r1, r2, N, dr)
+            p = self.momentum(E, r)
+            r_out = np.concatenate([r, [np.nan], r[::-1]])
+            p_out = np.concatenate([p, [np.nan], -p[::-1]])
 
         if output in "rp":
             return {"rp": (r_out, p_out), "r": r_out, "p": p_out}[output]
