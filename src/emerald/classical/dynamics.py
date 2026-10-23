@@ -195,7 +195,7 @@ class ClassicalSystem:
         """
         if self.field is None:
             raise AssertionError("Field must be defined")
-        t_eval = np.linspace(0, Nt*self.field.period, Nt)
+        t_eval = np.arange(NT)*self.field.period
         t_span = (t_eval[0], t_eval[-1])
 
         traj = self.propagate(t_eval, t_span, integrator)
