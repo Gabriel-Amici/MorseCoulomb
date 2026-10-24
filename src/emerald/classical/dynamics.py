@@ -77,8 +77,12 @@ class Dynamics(Serializable):
             return concrete(parameters["potential"])
         return concrete(**parameters)
 
-    def propagate(self, states0: np.ndarray, t_span, t_eval: np.ndarray, 
+    def propagate(self, states0: np.ndarray, t_eval: np.ndarray, t_span: tuple | None = None, 
                   integrator: Integrator = _DEFAULT_INTEGRATOR) -> "Trajectory":
+
+        if t_span is None:
+            t_span = (t_eval[0], t_eval[-1])
+
         t_start = time.perf_counter()
         time_vals, states = integrator.propagate(self, states0, t_span, t_eval)
         generation_time_s = time.perf_counter() - t_start
@@ -293,6 +297,10 @@ class PoincareMap(Trajectory):
         super().__init__(time, states, dynamics=dynamics, metadata=metadata)
 
 class ClassicalSystem(Serializable):
+    """
+    Classical system composed by a particle or an ensamble of particles, all
+    subject to the same `Dynamics`.
+    """
 
     _serialized_parameters = {"dynamics": "dynamics", "states0": "states0"}
     _format_version = 1
@@ -335,7 +343,8 @@ class ClassicalSystem(Serializable):
         states0 = deserialize_object(data["states0"])
         return concrete(dynamics, states0)
 
-    def propagate(self, t_eval: np.ndarray, t_span: tuple | None = None, integrator: Integrator = _DEFAULT_INTEGRATOR) -> "Trajectory":
+    def propagate(self, t_eval: np.ndarray, t_span: tuple | None = None, 
+                  integrator: Integrator = _DEFAULT_INTEGRATOR) -> "Trajectory":
 
         if t_span is None:
             t_span = (t_eval[0], t_eval[-1])
@@ -489,3 +498,18 @@ class ClassicalSystem(Serializable):
             )
 
         return cls(dynamics, states0)
+
+    @classmethod
+    def merge_systems(cls, dynamics: Dynamics, syst_list: list['ClassicalSystem']):
+
+        states0 = []
+
+        for syst in syst_list:
+            if not isinstance(syst, ClassicalSystem):
+                raise TypeError(f"System mus be a ClassicalSystem, not {type(syst)}")
+
+            states0.append(syst.states0)
+        
+        states = np.row_stack(tuple(states0))
+
+        return cls(dynamics, states)
