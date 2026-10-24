@@ -32,6 +32,7 @@ Conventions
   once with the same field (the quantum analogue of an ensemble).
 """
 
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
@@ -39,6 +40,7 @@ from typing import Protocol
 import numpy as np
 from tqdm import tqdm
 
+from ..fields.base import Field
 from ..serialization import (
     SerializationError,
     array_to_dict,
@@ -89,6 +91,12 @@ class Evolution:
     spectrum: Spectrum
     times: np.ndarray
     coeffs: np.ndarray
+    field: Field | None = None
+    metadata: dict | None = None
+
+    def __post_init__(self):
+        if self.metadata is None:
+            self.metadata = {}
 
     _format_version = 1
 
@@ -99,6 +107,8 @@ class Evolution:
             "spectrum": self.spectrum.to_dict(),
             "times": array_to_dict(self.times),
             "coeffs": array_to_dict(self.coeffs),
+            "field": self.field.to_dict() if isinstance(self.field, Field) else None,
+            "metadata": to_jsonable(self.metadata) if self.metadata is not None else {},
         }
         return data
 
@@ -123,7 +133,12 @@ class Evolution:
         spectrum = deserialize_object(data["spectrum"])
         times = deserialize_object(data["times"])
         coeffs = deserialize_object(data["coeffs"])
-        return cls(spectrum=spectrum, times=times, coeffs=coeffs)
+        field_data = data.get("field")
+        field_obj = deserialize_object(field_data) if field_data is not None else None
+        metadata = data.get("metadata") or {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        return cls(spectrum=spectrum, times=times, coeffs=coeffs, field=field_obj, metadata=metadata)
 
     # ------------------------------------------------------------------
     # Populations and norm
@@ -285,14 +300,20 @@ class StationaryPropagator:
         record_every : int
             Keep one out of every ``record_every`` times (``times[::record_every]``).
         """
+        t_start = time.perf_counter()
         c0, single = _prepare_coefficients(coeffs0, self.spectrum.n_states)
-        times = np.asarray(times, dtype=float)[::record_every]
+        times_arr = np.asarray(times, dtype=float)[::record_every]
 
         # phases[n, t] = exp(-i E_n (t - t0))
-        phases = np.exp(-1j * np.outer(self.spectrum.energies, times - times[0]))
+        phases = np.exp(-1j * np.outer(self.spectrum.energies, times_arr - times_arr[0]))
         coeffs = phases[:, :, None] * c0[:, None, :]          # (n, T, K)
-
-        return Evolution(self.spectrum, times, coeffs[..., 0] if single else coeffs)
+        generation_time_s = time.perf_counter() - t_start
+        metadata = {
+            "propagator": "stationary",
+            "record_every": int(record_every),
+            "generation_time_s": generation_time_s,
+        }
+        return Evolution(self.spectrum, times_arr, coeffs[..., 0] if single else coeffs, field=None, metadata=metadata)
 
 
 class SplitOperatorPropagator:
@@ -314,15 +335,15 @@ class SplitOperatorPropagator:
     spectrum : `Spectrum`
         Eigenbasis. Truncate it beforehand; the evolution is confined to the
         kept states, and X is the projection of the coupling on them.
-    field : callable
-        ``field(t) -> float``: value of F at time t (scalar in, scalar out).
+    field : Field
+        Field instance: value of F at time t.
     coupling : callable, optional
         Function of position multiplying the field. Defaults to ``r``
         (length gauge, dipole coupling). The sign convention lives here: use
         ``lambda r: -r`` for the opposite one.
     """
 
-    def __init__(self, spectrum: Spectrum, field: Callable[[float], float],
+    def __init__(self, spectrum: Spectrum, field: Field,
                  coupling: Callable[[np.ndarray], np.ndarray] = lambda r: r):
         self.spectrum = spectrum
         self.field = field
@@ -382,26 +403,35 @@ class SplitOperatorPropagator:
         -------
         `Evolution` with ``times[::record_every]`` as recorded times.
         """
-        times = np.asarray(times, dtype=float)
-        if len(times) < 2:
+        t_start = time.perf_counter()
+        times_arr = np.asarray(times, dtype=float)
+        if len(times_arr) < 2:
             raise ValueError("`times` needs at least two points.")
-        dt = times[1] - times[0]
-        if not np.allclose(np.diff(times), dt):
+        dt = times_arr[1] - times_arr[0]
+        if not np.allclose(np.diff(times_arr), dt):
             raise ValueError("The split-operator scheme needs a uniform time grid.")
 
         c, single = _prepare_coefficients(coeffs0, self.spectrum.n_states)
 
         n_states, K = c.shape
-        n_recorded = (len(times) - 1) // record_every + 1
+        n_recorded = (len(times_arr) - 1) // record_every + 1
         history = np.empty((n_states, n_recorded, K), dtype=np.complex128)
         history[:, 0] = c
 
         slot = 1
-        for k in tqdm(range(len(times) - 1), disable=not progress):
-            c = self.step(c, times[k], dt)
+        for k in tqdm(range(len(times_arr) - 1), disable=not progress):
+            c = self.step(c, times_arr[k], dt)
             if (k + 1) % record_every == 0:
                 history[:, slot] = c
                 slot += 1
 
-        return Evolution(self.spectrum, times[::record_every],
-                         history[..., 0] if single else history)
+        generation_time_s = time.perf_counter() - t_start
+        metadata = {
+            "propagator": "split_operator",
+            "record_every": int(record_every),
+            "dt": float(dt),
+            "generation_time_s": generation_time_s,
+        }
+        coeffs_out = history[..., 0] if single else history
+        return Evolution(self.spectrum, times_arr[::record_every],
+                         coeffs_out, field=getattr(self, "field_obj", None), metadata=metadata)
