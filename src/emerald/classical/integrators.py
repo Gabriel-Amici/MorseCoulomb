@@ -7,10 +7,12 @@ Integrators implementation
  - RegularizedScipyIntegrator: an integrator for regularized dynamics using SciPy's solve_ivp function
 """
 
+import warnings
 from abc import ABC, abstractmethod
 
 import numpy as np
 from scipy.integrate import solve_ivp
+from scipy.interpolate import CubicHermiteSpline
 
 
 class Integrator(ABC):
@@ -91,6 +93,20 @@ class RegularizedScipyIntegrator(Integrator):
     def __init__(self, tau_max: float = 1e4, **options):
         self.tau_max, self.options = tau_max, options   # generous cap; the event cuts it short
 
+    def _tau_at_times(self, sol, t_eval, ti):
+        tau_s, q1_s, q2_s = sol.t, sol.y[0], sol.y[ti]
+
+        guess = CubicHermiteSpline(q2_s, tau_s, 1.0 / (4 * q1_s**2))(t_eval)
+        tau = np.clip(guess, tau_s[0], tau_s[-1])
+
+        for _ in range(3):                                  # Newton polish vs dense output
+            Q = sol.sol(tau)
+            tau = np.clip(tau - (Q[ti] - t_eval) / (4 * Q[0]**2), tau_s[0], tau_s[-1])
+
+        resid = np.max(np.abs(sol.sol(tau)[ti] - t_eval))
+        return tau, resid
+
+
     def propagate(self, dynamics, state0, t_span, t_eval):
         t0, tf = t_span
         state0 = np.atleast_2d(state0)
@@ -107,9 +123,10 @@ class RegularizedScipyIntegrator(Integrator):
             sol = solve_ivp(dynamics.dstate, (0, self.tau_max), Q0,
                              dense_output=True, events=reached_tf, **self.options)
             print(f"particle {i}: nfev={sol.nfev}  steps={len(sol.t)}  status={sol.status}")
-            tau_grid = np.linspace(sol.t[0], sol.t[-1], 2000)
-            t_grid   = sol.sol(tau_grid)[dynamics.time_index]     # q2(tau), monotonic
-            tau_at_t = np.interp(t_eval, t_grid, tau_grid)        # invert it
+            tau_at_t, resid = self._tau_at_times(sol, t_eval, dynamics.time_index)
+            if resid > 1e-8:
+                warnings.warn(f"particle {i}: time inversion residual {resid:.2e}")
+            out[:, i, :] = dynamics.from_regularized(sol.sol(tau_at_t).T)
 
             out[:, i, :] = dynamics.from_regularized(sol.sol(tau_at_t).T)
 
