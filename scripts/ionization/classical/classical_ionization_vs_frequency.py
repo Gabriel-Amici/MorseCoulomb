@@ -1,90 +1,159 @@
 '''
-13/04/2025
+25/10/2026
 
-Program to calculate the the classical ionization probability for various field frequency values for an ensamble of particles under the Morse-soft-Coulomb.
+Program to calculate the classical ionization probability vs field
+frequency values for an ensemble of particles under MsC, sC and Coulomb
+potentials.
 
 PARAMETERS
 
-alpha
+--alpha
 field_amplitude
 field_frequency_set
 initial_energy
 initial_conditions
-delta_t
 total_time
 
 OUTPUT
 
-data -- object containing simulation parameters and results (history of expansion coefficients, ionization probability)
+One JSON file per potential, containing the simulation parameters, the field
+amplitude, the field frequency set and the ionization probability lists for
+the energy and distance criteria.
 '''
 
-import numpy as np
+import argparse
 import json
 from datetime import datetime
 
-from emerald.classical.msc_ionization import MsC_ionization_frequency_criteria
+import numpy as np
+
+from emerald.classical.dynamics import (
+    _DEFAULT_INTEGRATOR,
+    _DEFAULT_REGULARIZED_INTEGRATOR,
+    ClassicalSystem,
+    Dynamics,
+    RegularizedDynamics,
+)
+from emerald.fields import SinusoidField
+from emerald.potentials import Coulomb, MorseSoftCoulomb, SoftCoulomb
+from emerald.serialization import to_jsonable
 
 '''
 PARAMETERS
 '''
 
-field_amplitude = 0.005
-field_frequency_set = np.arange( 0.01, .52, 0.02 )
-delta_t = 0.001
-total_time = 100
+field_amplitude     = 0.04
+field_frequency_set = np.linspace(0.5, 2, 21)
 
-alpha = 0.1
-initial_energy = -0.186280312943416
+total_time = 2000
 
-initial_conditions = 150
+initial_energy = -0.5
 
-ionization_probabilities_8rM = []
-ionization_probabilities_4rM = []
-ionization_probabilities_comp = []
+initial_conditions = 300
 
+distance_criterion_r_max = 100.0
 
+parser = argparse.ArgumentParser(
+    description="Classical ionization probability versus field frequency."
+)
+parser.add_argument(
+    "--alpha",
+    type=float,
+    required=True,
+    help="Soft-Coulomb / Morse-soft-Coulomb alpha parameter. "
+         "Use 0 to run only the Coulomb potential.",
+)
+alpha = parser.parse_args().alpha
 
-Pis = MsC_ionization_frequency_criteria(alpha, initial_energy, field_amplitude, field_frequency_set, initial_conditions, total_time, 80, delta_t)
+if alpha == 0:
+    potential_configs = [
+        ("C", Coulomb(), RegularizedDynamics, _DEFAULT_REGULARIZED_INTEGRATOR),
+    ]
+else:
+    potential_configs = [
+        ("MsC", MorseSoftCoulomb(alpha=alpha), Dynamics, _DEFAULT_INTEGRATOR),
+        # ("sC", SoftCoulomb(alpha=alpha), Dynamics, _DEFAULT_INTEGRATOR),
+    ]
 
-Pis = np.array(Pis)
-
-ionization_probabilities_8rM = Pis[:, 0]
-ionization_probabilities_4rM = Pis[:, 1]
-ionization_probabilities_comp = Pis[:, 2]
-
-output_data  = {
-    "parameters" : {
-        "alpha" : alpha,
-        "initial_energy" : initial_energy,
-        "initial_conditions" : int( (initial_conditions-1)*2 ),
-        "field_amplitude" : field_amplitude,
-        "field_frequency_set" : list(field_frequency_set),
-        "time_grid": {
-            "time_grid_starts" : list(np.pi/(2*field_frequency_set)),
-            "total_time" : total_time,
-            "delta_t" : delta_t
-        }
-    },
-    "results" : {
-        "ionization_probabilities_8rM" : list(ionization_probabilities_8rM),
-        "ionization_probabilities_4rM" : list(ionization_probabilities_4rM),
-        "ionization_probabilities_comp" : list(ionization_probabilities_comp),
+results = {
+    acronym: {
+        "potential": potential,
+        "initial_conditions": None,
+        "ionization_probabilities_energy": [],
+        "ionization_probabilities_distance": [],
     }
+    for acronym, potential, _, _ in potential_configs
 }
+
+t_eval = np.linspace(0, total_time, 10)
+
+for field_frequency in field_frequency_set:
+
+    field = SinusoidField(field_amplitude, field_frequency, phase=0)
+
+    for acronym, potential, dynamics_class, integrator in potential_configs:
+
+        dynamics = dynamics_class(potential, field)
+
+        system = ClassicalSystem.from_angle(
+            dynamics,
+            E=initial_energy,
+            N=initial_conditions,
+            position_signs=1,
+        )
+
+        if results[acronym]["initial_conditions"] is None:
+            results[acronym]["initial_conditions"] = len(system.states0)
+
+        trajectory = system.propagate(t_eval, integrator=integrator)
+
+        Pion_energy = trajectory.ionization_probability('energy')
+        Pion_distance = trajectory.ionization_probabilities(
+            'distance', r_max=distance_criterion_r_max
+        )[-1]
+
+        results[acronym]["ionization_probabilities_energy"].append(float(Pion_energy))
+        results[acronym]["ionization_probabilities_distance"].append(float(Pion_distance))
+
+    print(
+        f"Frequency {field_frequency:.3f} Done: "
+        + " | ".join(
+            f"{acronym} = {results[acronym]['ionization_probabilities_energy'][-1]:.2f}"
+            for acronym, _, _, _ in potential_configs
+        )
+    )
 
 now = datetime.now().strftime(r"%Y-%m-%d--%H-%M")
 
-'''
-import matplotlib.pyplot as plt
-plt.ylim(0, 1)
-plt.plot(output_data["parameters"]["field_frequency_set"], output_data["results"]["ionization_probabilities_8rM"], label="$r>8r_M$")
-plt.plot(output_data["parameters"]["field_frequency_set"], output_data["results"]["ionization_probabilities_4rM"], label="$r>4r_M$")
-plt.plot(output_data["parameters"]["field_frequency_set"], output_data["results"]["ionization_probabilities_comp"], label="compensate")
-plt.legend()
-plt.show()
-'''
+for acronym, potential, _, _ in potential_configs:
 
-filename = f"{now}--classical-ionization-frequency--a--{alpha}--F0--{field_amplitude}.json"
-with open(filename, "w") as filehandle:
-    json.dump(output_data, filehandle)
+    potential_data = results[acronym]
 
+    output_data = {
+        "parameters": {
+            "potential": potential.name,
+            "potential_parameters": to_jsonable(potential.to_dict()),
+            "alpha": alpha,
+            "initial_energy": initial_energy,
+            "initial_conditions": potential_data["initial_conditions"],
+            "field_amplitude": field_amplitude,
+            "total_time": total_time,
+            "t_eval": to_jsonable(t_eval),
+            "distance_criterion_r_max": distance_criterion_r_max,
+        },
+        "results": {
+            "field_frequency_set": to_jsonable(field_frequency_set),
+            "ionization_probabilities_energy":
+                potential_data["ionization_probabilities_energy"],
+            "ionization_probabilities_distance":
+                potential_data["ionization_probabilities_distance"],
+        },
+    }
+
+    filename = (
+        f"{now}--{acronym}-classical-ionization-frequency"
+        f"--a--{round(alpha, 3):g}--F0--{round(field_amplitude, 3)}.json"
+    )
+
+    with open(filename, "w") as filehandle:
+        json.dump(output_data, filehandle, indent=2)
