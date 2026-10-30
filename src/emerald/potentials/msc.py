@@ -38,7 +38,7 @@ class MorseSoftCoulomb(Potential):
         r = np.asarray(position_array)
         
         coulomb = r*(r**2 + self.alpha**2)**(-3/2)
-        morse = 2*self.well_depth*self.beta*np.exp( -2*self.beta*r)*( np.exp( self.beta*r ) - 1 )
+        morse = 2*self.well_depth*self.beta*(np.exp( -self.beta*r) - np.exp( -2*self.beta*r) )
         
         return np.where(r > 0, coulomb, morse)
     

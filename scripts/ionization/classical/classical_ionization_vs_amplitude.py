@@ -23,7 +23,13 @@ the energy and distance criteria.
 
 import argparse
 import json
+import os
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
+
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
 
 import numpy as np
 
@@ -53,43 +59,14 @@ initial_conditions = 300
 
 distance_criterion_r_max = 100.0
 
-parser = argparse.ArgumentParser(
-    description="Classical ionization probability versus field amplitude."
-)
-parser.add_argument(
-    "--alpha",
-    type=float,
-    required=True,
-    help="Soft-Coulomb / Morse-soft-Coulomb alpha parameter. "
-         "Use 0 to run only the Coulomb potential.",
-)
-alpha = parser.parse_args().alpha
+DEFAULT_WORKERS = 10
 
-if alpha == 0:
-    potential_configs = [
-        ("C", Coulomb(), RegularizedDynamics, _DEFAULT_REGULARIZED_INTEGRATOR),
-    ]
-else:
-    potential_configs = [
-        ("MsC", MorseSoftCoulomb(alpha=alpha), Dynamics, _DEFAULT_INTEGRATOR),
-        # ("sC", SoftCoulomb(alpha=alpha), Dynamics, _DEFAULT_INTEGRATOR),
-    ]
 
-results = {
-    acronym: {
-        "potential": potential,
-        "initial_conditions": None,
-        "ionization_probabilities_energy": [],
-        "ionization_probabilities_distance": [],
-    }
-    for acronym, potential, _, _ in potential_configs
-}
-
-t_eval = np.linspace(0, total_time, 10)
-
-for amplitude in field_amplitude_set:
-
+def simulate_amplitude(amplitude, potential_configs, field_frequency, t_eval,
+                       initial_energy, initial_conditions,
+                       distance_criterion_r_max):
     field = SinusoidField(amplitude, field_frequency, phase=0)
+    point = {}
 
     for acronym, potential, dynamics_class, integrator in potential_configs:
 
@@ -102,58 +79,147 @@ for amplitude in field_amplitude_set:
             position_signs=1,
         )
 
-        if results[acronym]["initial_conditions"] is None:
-            results[acronym]["initial_conditions"] = len(system.states0)
-
         trajectory = system.propagate(t_eval, integrator=integrator)
 
-        Pion_energy = trajectory.ionization_probability('energy')
-        Pion_distance = trajectory.ionization_probabilities(
-            'distance', r_max=distance_criterion_r_max
-        )[-1]
+        point[acronym] = {
+            "n_initial": len(system.states0),
+            "energy": float(trajectory.ionization_probability('energy')),
+            "distance": float(
+                trajectory.ionization_probabilities(
+                    'distance', r_max=distance_criterion_r_max
+                )[-1]
+            ),
+        }
 
-        results[acronym]["ionization_probabilities_energy"].append(float(Pion_energy))
-        results[acronym]["ionization_probabilities_distance"].append(float(Pion_distance))
+    return point
 
-    print(
-        f"Amplitude {amplitude:.3f} Done: "
-        + " | ".join(
-            f"{acronym} = {results[acronym]['ionization_probabilities_energy'][-1]:.2f}"
-            for acronym, _, _, _ in potential_configs
-        )
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Classical ionization probability versus field amplitude."
     )
+    parser.add_argument(
+        "--alpha",
+        type=float,
+        required=True,
+        help="Soft-Coulomb / Morse-soft-Coulomb alpha parameter. "
+             "Use 0 to run only the Coulomb potential.",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=DEFAULT_WORKERS,
+        help=f"Number of worker processes (default: {DEFAULT_WORKERS}).",
+    )
+    args = parser.parse_args()
 
-now = datetime.now().strftime(r"%Y-%m-%d--%H-%M")
+    if args.workers < 1:
+        parser.error("--workers must be at least 1.")
 
-for acronym, potential, _, _ in potential_configs:
+    workers = min(args.workers, os.cpu_count() or 1)
+    alpha = args.alpha
 
-    potential_data = results[acronym]
+    if alpha == 0:
+        potential_configs = [
+            ("C", Coulomb(), RegularizedDynamics, _DEFAULT_REGULARIZED_INTEGRATOR),
+        ]
+    else:
+        potential_configs = [
+            ("MsC", MorseSoftCoulomb(alpha=alpha), Dynamics, _DEFAULT_INTEGRATOR),
+            # ("sC", SoftCoulomb(alpha=alpha), Dynamics, _DEFAULT_INTEGRATOR),
+        ]
 
-    output_data = {
-        "parameters": {
-            "potential": potential.name,
-            "potential_parameters": to_jsonable(potential.to_dict()),
-            "alpha": alpha,
-            "initial_energy": initial_energy,
-            "initial_conditions": potential_data["initial_conditions"],
-            "field_frequency": field_frequency,
-            "total_time": total_time,
-            "t_eval": to_jsonable(t_eval),
-            "distance_criterion_r_max": distance_criterion_r_max,
-        },
-        "results": {
-            "field_amplitude_set": to_jsonable(field_amplitude_set),
-            "ionization_probabilities_energy":
-                potential_data["ionization_probabilities_energy"],
-            "ionization_probabilities_distance":
-                potential_data["ionization_probabilities_distance"],
-        },
+    results = {
+        acronym: {
+            "potential": potential,
+            "initial_conditions": None,
+            "ionization_probabilities_energy": [],
+            "ionization_probabilities_distance": [],
+        }
+        for acronym, potential, _, _ in potential_configs
     }
 
-    filename = (
-        f"{now}--{acronym}-classical-ionization-amplitude"
-        f"--a--{round(alpha, 3):g}--Omg--{round(field_frequency, 3)}.json"
-    )
+    t_eval = np.linspace(0, total_time, 10)
+    ordered = [None] * len(field_amplitude_set)
 
-    with open(filename, "w") as filehandle:
-        json.dump(output_data, filehandle, indent=2)
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+        futures = {
+            executor.submit(
+                simulate_amplitude,
+                float(amplitude),
+                potential_configs,
+                field_frequency,
+                t_eval,
+                initial_energy,
+                initial_conditions,
+                distance_criterion_r_max,
+            ): i
+            for i, amplitude in enumerate(field_amplitude_set)
+        }
+
+        for future in as_completed(futures):
+            i = futures[future]
+            point = future.result()
+            ordered[i] = point
+
+            amplitude = field_amplitude_set[i]
+            print(
+                f"Amplitude {amplitude:.3f} Done: "
+                + " | ".join(
+                    f"{acronym} = {point[acronym]['energy']:.2f}"
+                    for acronym, _, _, _ in potential_configs
+                )
+            )
+
+    for acronym, potential, _, _ in potential_configs:
+
+        potential_data = results[acronym]
+
+        potential_data["initial_conditions"] = next(
+            point[acronym]["n_initial"] for point in ordered
+        )
+        potential_data["ionization_probabilities_energy"] = [
+            point[acronym]["energy"] for point in ordered
+        ]
+        potential_data["ionization_probabilities_distance"] = [
+            point[acronym]["distance"] for point in ordered
+        ]
+
+    now = datetime.now().strftime(r"%Y-%m-%d--%H-%M")
+
+    for acronym, potential, _, _ in potential_configs:
+
+        potential_data = results[acronym]
+
+        output_data = {
+            "parameters": {
+                "potential": potential.name,
+                "potential_parameters": to_jsonable(potential.to_dict()),
+                "alpha": alpha,
+                "initial_energy": initial_energy,
+                "initial_conditions": potential_data["initial_conditions"],
+                "field_frequency": field_frequency,
+                "total_time": total_time,
+                "t_eval": to_jsonable(t_eval),
+                "distance_criterion_r_max": distance_criterion_r_max,
+            },
+            "results": {
+                "field_amplitude_set": to_jsonable(field_amplitude_set),
+                "ionization_probabilities_energy":
+                    potential_data["ionization_probabilities_energy"],
+                "ionization_probabilities_distance":
+                    potential_data["ionization_probabilities_distance"],
+            },
+        }
+
+        filename = (
+            f"{now}--{acronym}-classical-ionization-amplitude"
+            f"--a--{round(alpha, 3):g}--Omg--{round(field_frequency, 3)}.json"
+        )
+
+        with open(filename, "w") as filehandle:
+            json.dump(output_data, filehandle, indent=2)
+
+
+if __name__ == "__main__":
+    main()
