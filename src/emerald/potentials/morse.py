@@ -35,8 +35,7 @@ class Morse(Potential):
     def first_derivative(self, position_array):
         r = np.asarray(position_array)
         
-        morse = 2*self.well_depth*self.beta*np.exp( -2*self.beta*r)*( np.exp( self.beta*r ) - 1 )
-        
+        morse = 2*self.well_depth*self.beta*(np.exp(-self.beta*r) - np.exp(-2*self.beta*r))        
         return morse
     
     def second_derivative(self, position_array):
