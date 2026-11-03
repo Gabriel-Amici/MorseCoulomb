@@ -266,7 +266,26 @@ class Trajectory(Serializable):
 
     def ionization_probabilities(self, criterion='energy', r_max: float = 100.):
         """
-        Ionization probability as a time series
+        Ionization probability as a time series.
+
+        Parameters
+        ----------
+        criterion: str
+            Criterion used to classify a trajectory as ionized:
+
+            - ``'energy'``: ionized when its energy is positive (``E > 0``).
+            - ``'distance'``: ionized when its position lies beyond ``r_max``
+              (``|r| > r_max``), regardless of its energy.
+            - ``'energy-distance'``: ionized only when both conditions hold,
+              i.e. ``E > 0`` and ``|r| > r_max``.
+        r_max: float
+            Distance threshold used by the ``'distance'`` and
+            ``'energy-distance'`` criteria.
+
+        Returns
+        -------
+        np.ndarray
+            Ionized fraction at each time, with shape ``(T,)``.
         """
         if criterion=='energy':
             if self.states.ndim != 3:
@@ -276,20 +295,43 @@ class Trajectory(Serializable):
             return ionized/self.N_trajectories
 
         if criterion=='distance':
+            ionized = np.where(np.abs(self.position) > r_max, 1, 0)
+            if self.states.ndim == 3:
+                ionized = np.sum(ionized, axis=1)
+            return ionized/self.N_trajectories
+
+        if criterion=='energy-distance':
             ionized = np.where((self.energy > 0) & \
                                (np.abs(self.position) > r_max), 1, 0)
             if self.states.ndim == 3:
                 ionized = np.sum(ionized, axis=1)
             return ionized/self.N_trajectories
 
-        # later: distance criterium
-
-    def ionization_probability(self, criterion='energy'):
+    def ionization_probability(self, criterion='energy', r_max: float = 100.):
         """
-        Ionization probability as at the end of the time series
+        Ionization probability at the end of the time series.
+
+        Parameters
+        ----------
+        criterion: str
+            Criterion used to classify a trajectory as ionized:
+
+            - ``'energy'``: ionized when its energy is positive (``E > 0``).
+            - ``'distance'``: ionized when its position lies beyond ``r_max``
+              (``|r| > r_max``), regardless of its energy.
+            - ``'energy-distance'``: ionized only when both conditions hold,
+              i.e. ``E > 0`` and ``|r| > r_max``.
+        r_max: float
+            Distance threshold used by the ``'distance'`` and
+            ``'energy-distance'`` criteria.
+
+        Returns
+        -------
+        float
+            Ionized fraction at the final time.
         """
 
-        return self.ionization_probabilities(criterion)[-1]
+        return self.ionization_probabilities(criterion, r_max)[-1]
 
 class PoincareMap(Trajectory):
 
