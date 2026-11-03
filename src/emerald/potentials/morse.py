@@ -91,16 +91,21 @@ class Morse(Potential):
         return np.arctan2(np.abs(y), x)
 
     def _batch_action(self, E, M: int = 300):
-            E = np.atleast_1d(np.asarray(E, dtype=float))
-            bound = E < 0                      # only bound motion has a well-defined action
-            result = np.full(E.shape, np.nan)
-            if not np.any(bound):
-                return result
-    
-            Eb = E[bound]
-            return self.action(Eb)
+        E = np.asarray(E, dtype=float)
+        bound = (E >= -self.well_depth) & (E < 0)   # action is defined inside the well
+        result = np.full(E.shape, np.nan)
+        if np.any(bound):
+            result[bound] = self.action(E[bound])
+        return result
 
     def _batch_angle(self, E, r):
-
-        return self.angle(E, r)
+        E, r = np.broadcast_arrays(
+            np.asarray(E, dtype=float),
+            np.asarray(r, dtype=float),
+        )
+        bound = (E >= -self.well_depth) & (E < 0)   # angle is defined inside the well
+        result = np.full(E.shape, np.nan)
+        if np.any(bound):
+            result[bound] = self.angle(E[bound], r[bound])
+        return result
         
