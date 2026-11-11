@@ -27,6 +27,8 @@ _REGISTRY: dict[str, tuple[str, str]] = {
                              "InterpolatedField"),
     "SinusoidField"       : ("emerald.fields.sinusoidal", 
                              "SinusoidField"),
+    "PlateauEnvelope"     : ("emerald.fields.envelopes", 
+                             "PlateauEnvelope"),
     "Dynamics"            : ("emerald.classical.dynamics", 
                              "Dynamics"),
     "StaticDynamics"      : ("emerald.classical.dynamics", 
