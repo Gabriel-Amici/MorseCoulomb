@@ -15,6 +15,8 @@ from dataclasses import dataclass, field, replace
 import numpy as np
 from scipy.linalg import eigh
 
+from emerald.potentials.base import Potential
+
 from ..serialization import (
     SerializationError,
     array_to_dict,
@@ -25,7 +27,7 @@ from ..serialization import (
 from .representations import Representation
 
 
-def hamiltonian(representation: Representation, potential: callable, left_bc, right_bc):
+def hamiltonian(representation: Representation, potential: Potential, left_bc, right_bc):
     """
     Builds the hamiltonian matrix in the given `representation` of a quantum
     system composed of an electron interacting with the given `potential`.
@@ -36,7 +38,7 @@ def hamiltonian(representation: Representation, potential: callable, left_bc, ri
         The given basis on which to express the hamiltonian;
 
     potential : `Potential`
-        Callable representing the interacting potential energy;
+        Object representing the interacting potential energy;
 
     left_bc | right_bc : `str` or `(alpha, beta)`
         Right and left boundary conditions: `'dirichlet'`, `'neumann'`
@@ -68,7 +70,7 @@ def hamiltonian(representation: Representation, potential: callable, left_bc, ri
 
 def solve_eigenproblem(H, S):
     """
-    Solves the generalized eigenvalue problem H @ c = E S @ c for the given
+    Solves the generalized eigenvalue problem `H @ c = E S @ c` for the given
     Hamiltonian and overlap matrices.
 
     The eigenvectors returned by `scipy.linalg.eigh` are S-orthonormal, i.e.
@@ -366,7 +368,7 @@ class Spectrum:
 
     @classmethod
     def from_representation(cls, representation: Representation,
-                            potential: callable, left_bc=None, right_bc=None,
+                            potential: Potential, left_bc=None, right_bc=None,
                             threshold: float = 0.0):
         """
         Builds and diagonalizes H0 in the given representation.
@@ -375,7 +377,7 @@ class Spectrum:
         ----------
         representation : `Representation`
             Basis in which to solve the problem;
-        potential : callable
+        potential : `Potential`
             Vectorized potential energy V(x);
         left_bc | right_bc : `str` or `(alpha, beta)`
             Boundary conditions, see `hamiltonian`;

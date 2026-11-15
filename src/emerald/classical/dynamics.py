@@ -417,7 +417,7 @@ class ClassicalSystem(Serializable):
         if self.field is None:
             raise AssertionError("Field must be defined")
         t_start = time.perf_counter()
-        t_eval = np.arange(NT) * self.field.period
+        t_eval = np.arange(1, NT+1) * self.field.period
         t_span = (t_eval[0], t_eval[-1])
 
         traj = self.propagate(t_eval, t_span, integrator)

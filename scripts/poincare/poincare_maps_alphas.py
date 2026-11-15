@@ -40,7 +40,7 @@ from emerald.serialization import to_jsonable
 PARAMETERS
 '''
 
-alpha_set = [0.01, 0.5, 1.]
+alpha_set = [0.75]
 
 field_amplitude = 0.025
 field_frequency = 1.0
